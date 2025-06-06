@@ -221,11 +221,7 @@ Open a Pull Request
 📧 Email: msyoon@wistek.co.kr
 📞 Mobile : +82-10-8339-7652
 
-<div align="center">
-  <p>Made with ❤️ by Smart Factory Team</p>
-  <p>© 2025 Smart MES-ERP. All rights reserved.</p>
-</div>
-```
+
 📌 다음 대화를 위한 핵심 메모
 현재 상태 (V1.0)
 
