@@ -10,10 +10,10 @@ system:
 
 # 모듈 활성화 설정
 modules:
-  mes: true          # MES (생산관리) - 활성화
-  inventory: true    # 재고관리 - 활성화
+  mes: true          # MES (생산관리) - 활성화(V0.1 신규)
+  inventory: true    # 재고관리 - 활성화 (V0.2 신규)
   purchase: true     # 구매관리 - 활성화 (V0.5 신규)
-  sales: false       # 영업관리 - 개발 중
+  sales: true       # 영업관리 -  활성화 (V0.9 신규)
   accounting: true   # 회계관리 - 활성화 (V0.7 신규)
 
 # 인증 설정
