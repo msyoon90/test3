@@ -1,0 +1,57 @@
+# Smart MES System Configuration
+# MES 모듈만 활성화된 간소화 버전
+
+# 시스템 기본 설정
+system:
+  name: Smart MES
+  version: "1.0.0"
+  language: ko
+  update_interval: 2000  # 실시간 업데이트 주기 (밀리초)
+
+# 모듈 활성화 설정
+modules:
+  mes: true           # MES (생산관리) - 활성화
+  # inventory: false  # 재고관리 - 비활성화
+  # purchase: false   # 구매관리 - 비활성화
+  # sales: false      # 영업관리 - 비활성화
+  # accounting: false # 회계관리 - 비활성화
+
+# 인증 설정
+authentication:
+  enabled: true           # 로그인 기능 사용 여부
+  session_timeout: 30     # 세션 타임아웃 (분)
+
+# 데이터베이스 설정
+database:
+  path: data/database.db  # SQLite 데이터베이스 파일 경로
+
+# MES 설정
+mes:
+  processes:            # 공정 목록
+    - cutting          # 절단
+    - processing       # 가공
+    - assembly         # 조립
+    - inspection       # 검사
+    - packing         # 포장
+  
+  default_values:
+    update_interval: 5000    # MES 데이터 갱신 주기 (ms)
+    max_defect_rate: 10     # 최대 허용 불량률 (%)
+    min_achievement: 80     # 최소 달성률 (%)
+  
+  alerts:
+    low_achievement: true    # 낮은 달성률 알림
+    high_defect_rate: true  # 높은 불량률 알림
+    daily_summary: true     # 일일 요약 알림
+
+# 로깅 설정
+logging:
+  level: INFO             # 로그 레벨 (DEBUG, INFO, WARNING, ERROR)
+  file: logs/mes.log      # 로그 파일 경로
+
+# 백업 설정
+backup:
+  enabled: true           # 자동 백업 사용
+  interval: daily         # 백업 주기 (daily, weekly, monthly)
+  path: backups/          # 백업 파일 저장 경로
+  retention: 30           # 백업 보관 기간 (일)
