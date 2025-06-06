@@ -629,3 +629,466 @@ def register_sales_callbacks(app):
         return is_open
     
     # 견적서 저장
+    @app.callback(
+        Output('quote-modal-message', 'children'),
+        Input('save-quote-btn', 'n_clicks'),
+        [State('modal-quote-date', 'value'),
+         State('modal-quote-customer', 'value'),
+         State('modal-quote-validity', 'value'),
+         State('quote-total-amount', 'children'),
+         State('modal-quote-notes', 'value'),
+         State('session-store', 'data')],
+        prevent_initial_call=True
+    )
+    def save_quotation(n_clicks, quote_date, customer, validity_date, 
+                      total_amount, notes, session_data):
+        """견적서 저장"""
+        if not all([quote_date, customer, validity_date]):
+            return dbc.Alert("모든 필수 항목을 입력하세요.", color="warning")
+        
+        try:
+            conn = sqlite3.connect('data/database.db')
+            cursor = conn.cursor()
+            
+            # 견적번호 생성
+            cursor.execute("SELECT COUNT(*) FROM quotations WHERE quote_date = ?", (quote_date,))
+            count = cursor.fetchone()[0]
+            quote_number = f"QT-{quote_date.replace('-', '')}-{count+1:04d}"
+            
+            # 총액 파싱
+            total_amount_value = float(total_amount.replace('₩', '').replace(',', '')) if total_amount != '₩0' else 0
+            
+            # 사용자 ID
+            user_id = session_data.get('user_id', 1) if session_data else 1
+            
+            # 견적서 저장
+            cursor.execute("""
+                INSERT INTO quotations
+                (quote_number, quote_date, customer_code, validity_date,
+                 total_amount, status, notes, created_by)
+                VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)
+            """, (quote_number, quote_date, customer, validity_date,
+                  total_amount_value, notes, user_id))
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"견적서 생성 완료: {quote_number}")
+            
+            return dbc.Alert(
+                [html.I(className="fas fa-check-circle me-2"),
+                 f"견적서 {quote_number}가 생성되었습니다!"],
+                color="success"
+            )
+            
+        except Exception as e:
+            logger.error(f"견적서 저장 실패: {e}")
+            return dbc.Alert(f"저장 중 오류가 발생했습니다: {str(e)}", color="danger")
+    
+    # 수주 저장
+    @app.callback(
+        Output('order-modal-message', 'children'),
+        Input('save-order-btn', 'n_clicks'),
+        [State('modal-order-date', 'value'),
+         State('modal-order-customer', 'value'),
+         State('modal-delivery-date', 'value'),
+         State('modal-related-quote', 'value'),
+         State('modal-order-status', 'value'),
+         State('session-store', 'data')],
+        prevent_initial_call=True
+    )
+    def save_sales_order(n_clicks, order_date, customer, delivery_date,
+                        related_quote, status, session_data):
+        """수주 저장"""
+        if not all([order_date, customer, delivery_date]):
+            return dbc.Alert("모든 필수 항목을 입력하세요.", color="warning")
+        
+        try:
+            conn = sqlite3.connect('data/database.db')
+            cursor = conn.cursor()
+            
+            # 수주번호 생성
+            cursor.execute("SELECT COUNT(*) FROM sales_orders WHERE order_date = ?", (order_date,))
+            count = cursor.fetchone()[0]
+            order_number = f"SO-{order_date.replace('-', '')}-{count+1:04d}"
+            
+            # 사용자 ID
+            user_id = session_data.get('user_id', 1) if session_data else 1
+            
+            # 견적서에서 전환하는 경우 금액 가져오기
+            total_amount = 0
+            if related_quote != 'none':
+                cursor.execute("SELECT total_amount FROM quotations WHERE quote_number = ?", (related_quote,))
+                quote_result = cursor.fetchone()
+                if quote_result:
+                    total_amount = quote_result[0]
+                    # 견적서 상태를 수주 확정으로 변경
+                    cursor.execute("UPDATE quotations SET status = 'won' WHERE quote_number = ?", (related_quote,))
+            
+            # 수주 저장
+            cursor.execute("""
+                INSERT INTO sales_orders
+                (order_number, order_date, customer_code, delivery_date,
+                 total_amount, status, quote_number, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (order_number, order_date, customer, delivery_date,
+                  total_amount, status, related_quote if related_quote != 'none' else None, user_id))
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"수주 생성 완료: {order_number}")
+            
+            return dbc.Alert(
+                [html.I(className="fas fa-check-circle me-2"),
+                 f"수주 {order_number}가 생성되었습니다!"],
+                color="success"
+            )
+            
+        except Exception as e:
+            logger.error(f"수주 저장 실패: {e}")
+            return dbc.Alert(f"저장 중 오류가 발생했습니다: {str(e)}", color="danger")
+    
+    # 고객 저장
+    @app.callback(
+        Output('customer-modal-message', 'children'),
+        Input('save-customer-btn', 'n_clicks'),
+        [State('modal-customer-code', 'value'),
+         State('modal-customer-name', 'value'),
+         State('modal-customer-business-no', 'value'),
+         State('modal-customer-ceo', 'value'),
+         State('modal-customer-contact', 'value'),
+         State('modal-customer-phone', 'value'),
+         State('modal-customer-email', 'value'),
+         State('modal-customer-address', 'value'),
+         State('modal-customer-grade', 'value'),
+         State('modal-customer-payment-terms', 'value')],
+        prevent_initial_call=True
+    )
+    def save_customer(n_clicks, customer_code, customer_name, business_no,
+                     ceo_name, contact_person, phone, email, address,
+                     grade, payment_terms):
+        """고객 저장"""
+        if not all([customer_code, customer_name]):
+            return dbc.Alert("고객 코드와 고객명은 필수입니다.", color="warning")
+        
+        try:
+            conn = sqlite3.connect('data/database.db')
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT OR REPLACE INTO customers
+                (customer_code, customer_name, business_no, ceo_name,
+                 contact_person, phone, email, address, grade,
+                 payment_terms, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            """, (customer_code, customer_name, business_no, ceo_name,
+                  contact_person, phone, email, address, grade, payment_terms))
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"고객 저장 완료: {customer_code}")
+            
+            return dbc.Alert(
+                [html.I(className="fas fa-check-circle me-2"), "고객이 등록되었습니다!"],
+                color="success"
+            )
+            
+        except sqlite3.IntegrityError:
+            return dbc.Alert("이미 존재하는 고객 코드입니다.", color="danger")
+        except Exception as e:
+            logger.error(f"고객 저장 실패: {e}")
+            return dbc.Alert(f"저장 중 오류가 발생했습니다: {str(e)}", color="danger")
+    
+    # 영업관리 설정 저장
+    @app.callback(
+        Output('sales-settings-message', 'children'),
+        Input('save-sales-settings-btn', 'n_clicks'),
+        [State('quote-validity-days', 'value'),
+         State('default-discount-rate', 'value'),
+         State('auto-quote-number', 'value'),
+         State('quote-template', 'value'),
+         State('sales-notifications', 'value'),
+         State('vip-threshold', 'value'),
+         State('gold-threshold', 'value'),
+         State('silver-threshold', 'value')],
+        prevent_initial_call=True
+    )
+    def save_sales_settings(n_clicks, validity_days, discount_rate, auto_number,
+                           template, notifications, vip_threshold, gold_threshold,
+                           silver_threshold):
+        """영업관리 설정 저장"""
+        try:
+            settings = {
+                'quote': {
+                    'validity_days': validity_days,
+                    'default_discount_rate': discount_rate,
+                    'auto_number': auto_number,
+                    'template': template
+                },
+                'notifications': notifications,
+                'customer_grades': {
+                    'vip_threshold': vip_threshold,
+                    'gold_threshold': gold_threshold,
+                    'silver_threshold': silver_threshold
+                }
+            }
+            
+            conn = sqlite3.connect('data/database.db')
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT OR REPLACE INTO system_config (key, value)
+                VALUES ('sales_settings', ?)
+            """, (json.dumps(settings),))
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info("영업관리 설정 저장 완료")
+            
+            return dbc.Alert(
+                [html.I(className="fas fa-check-circle me-2"), "설정이 저장되었습니다!"],
+                color="success",
+                dismissable=True
+            )
+            
+        except Exception as e:
+            logger.error(f"영업관리 설정 저장 실패: {e}")
+            return dbc.Alert(
+                f"저장 중 오류가 발생했습니다: {str(e)}",
+                color="danger",
+                dismissable=True
+            )
+    
+    # CRM 활동 업데이트
+    @app.callback(
+        [Output('today-activities', 'children'),
+         Output('week-meetings', 'children'),
+         Output('pending-followup', 'children'),
+         Output('hot-leads', 'children'),
+         Output('activity-list', 'children'),
+         Output('opportunity-list', 'children')],
+        Input('interval-component', 'n_intervals')
+    )
+    def update_crm_dashboard(n):
+        """CRM 대시보드 업데이트"""
+        conn = sqlite3.connect('data/database.db')
+        
+        try:
+            cursor = conn.cursor()
+            
+            # 오늘 활동
+            cursor.execute("""
+                SELECT COUNT(*) FROM sales_activities 
+                WHERE activity_date = date('now')
+            """)
+            today_activities = cursor.fetchone()[0]
+            
+            # 이번주 미팅
+            cursor.execute("""
+                SELECT COUNT(*) FROM sales_activities 
+                WHERE activity_type = 'meeting'
+                AND activity_date BETWEEN date('now', 'weekday 0', '-6 days') 
+                AND date('now', 'weekday 0')
+            """)
+            week_meetings = cursor.fetchone()[0]
+            
+            # 팔로업 대기 (더미 데이터)
+            pending_followup = 5
+            
+            # Hot 리드 (더미 데이터)
+            hot_leads = 3
+            
+            # 최근 활동 리스트
+            activities = [
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6("고객 미팅 - ABC(주)", className="mb-1"),
+                        html.P("제품 데모 및 견적 논의", className="mb-1 small"),
+                        html.P("2시간 전", className="text-muted small mb-0")
+                    ])
+                ], className="mb-2"),
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6("견적서 발송 - XYZ 코퍼레이션", className="mb-1"),
+                        html.P("QT-20250606-0001 발송 완료", className="mb-1 small"),
+                        html.P("1일 전", className="text-muted small mb-0")
+                    ])
+                ], className="mb-2")
+            ]
+            
+            # 영업 기회 리스트
+            opportunities = [
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6("신규 ERP 도입", className="mb-1"),
+                        html.P("ABC(주) - ₩50,000,000", className="mb-1 small"),
+                        dbc.Badge("Hot", color="danger", className="me-1"),
+                        dbc.Badge("80%", color="success")
+                    ])
+                ], className="mb-2"),
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6("설비 업그레이드", className="mb-1"),
+                        html.P("DEF 산업 - ₩30,000,000", className="mb-1 small"),
+                        dbc.Badge("Warm", color="warning", className="me-1"),
+                        dbc.Badge("60%", color="info")
+                    ])
+                ], className="mb-2")
+            ]
+            
+            return (
+                f"{today_activities:,}",
+                f"{week_meetings:,}",
+                f"{pending_followup:,}",
+                f"{hot_leads:,}",
+                activities,
+                opportunities
+            )
+            
+        except Exception as e:
+            logger.error(f"CRM 대시보드 조회 오류: {e}")
+            return "0", "0", "0", "0", [], []
+        finally:
+            conn.close()
+    
+    # 월별 견적 추이 차트
+    @app.callback(
+        [Output('monthly-quote-trend', 'figure'),
+         Output('quote-status-pie', 'figure')],
+        Input('interval-component', 'n_intervals')
+    )
+    def update_quote_charts(n):
+        """견적 관련 차트 업데이트"""
+        conn = sqlite3.connect('data/database.db')
+        
+        try:
+            # 월별 견적 추이 (최근 6개월)
+            trend_query = """
+                SELECT strftime('%Y-%m', quote_date) as month,
+                       COUNT(*) as quote_count,
+                       SUM(total_amount) as total_amount
+                FROM quotations
+                WHERE quote_date >= date('now', '-6 months')
+                GROUP BY strftime('%Y-%m', quote_date)
+                ORDER BY month
+            """
+            trend_df = pd.read_sql_query(trend_query, conn)
+            
+            trend_fig = go.Figure()
+            trend_fig.add_trace(go.Bar(
+                x=trend_df['month'],
+                y=trend_df['total_amount'],
+                name='견적금액',
+                marker_color='#0066cc',
+                text=trend_df['total_amount'].apply(lambda x: f'₩{x:,.0f}'),
+                textposition='auto'
+            ))
+            trend_fig.update_layout(
+                title="월별 견적 금액 추이",
+                xaxis_title="월",
+                yaxis_title="견적금액 (원)"
+            )
+            
+            # 견적 상태별 분포
+            status_query = """
+                SELECT status, COUNT(*) as count
+                FROM quotations
+                WHERE quote_date >= date('now', '-90 days')
+                GROUP BY status
+            """
+            status_df = pd.read_sql_query(status_query, conn)
+            
+            status_labels = {
+                'draft': '작성중',
+                'sent': '발송완료',
+                'reviewing': '고객검토',
+                'won': '수주확정',
+                'lost': '수주실패',
+                'expired': '만료'
+            }
+            
+            status_df['status_kr'] = status_df['status'].map(status_labels)
+            
+            status_fig = go.Figure()
+            status_fig.add_trace(go.Pie(
+                labels=status_df['status_kr'],
+                values=status_df['count'],
+                hole=0.4
+            ))
+            status_fig.update_layout(title="견적 상태별 분포 (최근 3개월)")
+            
+            return trend_fig, status_fig
+            
+        except Exception as e:
+            logger.error(f"견적 차트 조회 오류: {e}")
+            empty_fig = go.Figure()
+            empty_fig.add_annotation(
+                text="데이터가 없습니다",
+                xref="paper", yref="paper",
+                x=0.5, y=0.5, showarrow=False
+            )
+            return empty_fig, empty_fig
+        finally:
+            conn.close()
+    
+    # 매출 예측 차트
+    @app.callback(
+        Output('sales-forecast-chart', 'figure'),
+        Input('sales-analysis-period', 'value')
+    )
+    def update_sales_forecast(period):
+        """매출 예측 차트 (AI 기반 더미 데이터)"""
+        # 실제 매출 데이터 (더미)
+        months = ['2025-01', '2025-02', '2025-03', '2025-04', '2025-05', '2025-06']
+        actual_sales = [150000000, 180000000, 165000000, 200000000, 175000000, 190000000]
+        
+        # 예측 데이터 (더미)
+        forecast_months = ['2025-07', '2025-08', '2025-09', '2025-10', '2025-11', '2025-12']
+        forecast_sales = [210000000, 195000000, 220000000, 205000000, 230000000, 240000000]
+        
+        fig = go.Figure()
+        
+        # 실제 매출
+        fig.add_trace(go.Scatter(
+            x=months,
+            y=actual_sales,
+            mode='lines+markers',
+            name='실제 매출',
+            line=dict(color='#0066cc', width=3),
+            marker=dict(size=8)
+        ))
+        
+        # 예측 매출
+        fig.add_trace(go.Scatter(
+            x=forecast_months,
+            y=forecast_sales,
+            mode='lines+markers',
+            name='예측 매출',
+            line=dict(color='#ff6b6b', width=3, dash='dash'),
+            marker=dict(size=8)
+        ))
+        
+        # 신뢰구간 (더미)
+        upper_bound = [x * 1.1 for x in forecast_sales]
+        lower_bound = [x * 0.9 for x in forecast_sales]
+        
+        fig.add_trace(go.Scatter(
+            x=forecast_months + forecast_months[::-1],
+            y=upper_bound + lower_bound[::-1],
+            fill='toself',
+            fillcolor='rgba(255, 107, 107, 0.2)',
+            line=dict(color='rgba(255,255,255,0)'),
+            name='신뢰구간 (90%)'
+        ))
+        
+        fig.update_layout(
+            title="매출 예측 (AI 기반)",
+            xaxis_title="월",
+            yaxis_title="매출액 (원)",
+            hovermode='x unified'
+        )
+        
+        return fig
