@@ -1,6 +1,6 @@
 # modules/mes/callbacks.py - MES 모듈 콜백 함수
 
-from dash import Input, Output, State, callback_context, ALL, MATCH
+from dash import Input, Output, State, callback_context, ALL, MATCH, html
 import dash_bootstrap_components as dbc
 import plotly.graph_objs as go
 import plotly.express as px
