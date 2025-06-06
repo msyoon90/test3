@@ -1,4 +1,4 @@
-# app.py - Smart MES-ERP 메인 애플리케이션
+# app.py - Smart MES-ERP V1.0 메인 애플리케이션 (영업관리 모듈 추가)
 
 import dash
 from dash import dcc, html, Input, Output, State, callback_context, ALL, MATCH
@@ -35,6 +35,7 @@ def load_config():
     default_config = {
         'system': {
             'name': 'Smart MES-ERP',
+            'version': '1.0.0',
             'language': 'ko',
             'update_interval': 2000  # 2초
         },
@@ -42,7 +43,7 @@ def load_config():
             'mes': True,
             'inventory': True,
             'purchase': True,
-            'sales': False,
+            'sales': True,      # V1.0 신규 추가
             'accounting': True  
         },
         'authentication': {
@@ -51,6 +52,16 @@ def load_config():
         },
         'database': {
             'path': 'data/database.db'
+        },
+        'sales': {  # V1.0 영업관리 설정 추가
+            'quote_validity_days': 30,
+            'auto_quote_number': True,
+            'customer_grades': {
+                'VIP': 15,
+                'Gold': 10,
+                'Silver': 5,
+                'Bronze': 0
+            }
         }
     }
     
@@ -84,7 +95,7 @@ def init_database():
     conn = sqlite3.connect('data/database.db')
     cursor = conn.cursor()
     
-    # 사용자 테이블
+    # 기본 시스템 테이블
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,7 +106,7 @@ def init_database():
         )
     ''')
     
-    # 작업 로그 테이블
+    # 작업 로그 테이블 (MES)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS work_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -176,7 +187,110 @@ def init_database():
         )
     ''')
     
-    # 계정과목 마스터
+    # 거래처 마스터 (구매관리)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS supplier_master (
+            supplier_code TEXT PRIMARY KEY,
+            supplier_name TEXT NOT NULL,
+            business_no TEXT,
+            ceo_name TEXT,
+            contact_person TEXT,
+            phone TEXT,
+            email TEXT,
+            address TEXT,
+            payment_terms TEXT DEFAULT 'CASH',
+            lead_time INTEGER DEFAULT 7,
+            rating INTEGER DEFAULT 3,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # 발주서 헤더
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS purchase_orders (
+            po_number TEXT PRIMARY KEY,
+            po_date DATE NOT NULL,
+            supplier_code TEXT NOT NULL,
+            delivery_date DATE,
+            warehouse TEXT,
+            total_amount REAL DEFAULT 0,
+            status TEXT DEFAULT 'draft',
+            approved_by INTEGER,
+            approved_date TIMESTAMP,
+            remarks TEXT,
+            created_by INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (supplier_code) REFERENCES supplier_master (supplier_code)
+        )
+    ''')
+    
+    # 발주서 상세
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS purchase_order_details (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            po_number TEXT NOT NULL,
+            item_code TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            unit_price REAL NOT NULL,
+            amount REAL NOT NULL,
+            received_qty INTEGER DEFAULT 0,
+            remarks TEXT,
+            FOREIGN KEY (po_number) REFERENCES purchase_orders (po_number),
+            FOREIGN KEY (item_code) REFERENCES item_master (item_code)
+        )
+    ''')
+    
+    # 입고 예정
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS receiving_schedule (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            po_number TEXT NOT NULL,
+            scheduled_date DATE NOT NULL,
+            item_code TEXT NOT NULL,
+            expected_qty INTEGER NOT NULL,
+            received_qty INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'pending',
+            FOREIGN KEY (po_number) REFERENCES purchase_orders (po_number),
+            FOREIGN KEY (item_code) REFERENCES item_master (item_code)
+        )
+    ''')
+    
+    # 입고 검수
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS receiving_inspection (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            receiving_date DATE NOT NULL,
+            po_number TEXT NOT NULL,
+            item_code TEXT NOT NULL,
+            received_qty INTEGER NOT NULL,
+            accepted_qty INTEGER NOT NULL,
+            rejected_qty INTEGER DEFAULT 0,
+            inspection_result TEXT,
+            inspector_id INTEGER,
+            remarks TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (po_number) REFERENCES purchase_orders (po_number),
+            FOREIGN KEY (item_code) REFERENCES item_master (item_code)
+        )
+    ''')
+    
+    # 자동 발주 규칙
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS auto_po_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_code TEXT NOT NULL,
+            supplier_code TEXT NOT NULL,
+            reorder_point INTEGER NOT NULL,
+            order_qty INTEGER NOT NULL,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (item_code) REFERENCES item_master (item_code),
+            FOREIGN KEY (supplier_code) REFERENCES supplier_master (supplier_code)
+        )
+    ''')
+    
+    # 계정과목 마스터 (회계관리)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS account_master (
             account_code TEXT PRIMARY KEY,
@@ -314,6 +428,233 @@ def init_database():
         )
     ''')
     
+    # === V1.0 영업관리 테이블 추가 ===
+    
+    # 고객 마스터
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS customers (
+            customer_code TEXT PRIMARY KEY,
+            customer_name TEXT NOT NULL,
+            business_no TEXT,
+            ceo_name TEXT,
+            contact_person TEXT,
+            phone TEXT,
+            email TEXT,
+            address TEXT,
+            grade TEXT DEFAULT 'Bronze',  -- VIP, Gold, Silver, Bronze
+            payment_terms TEXT DEFAULT 'NET30',
+            credit_limit REAL DEFAULT 0,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # 견적서 헤더
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS quotations (
+            quote_number TEXT PRIMARY KEY,
+            quote_date DATE NOT NULL,
+            customer_code TEXT NOT NULL,
+            validity_date DATE NOT NULL,
+            total_amount REAL DEFAULT 0,
+            discount_rate REAL DEFAULT 0,
+            discount_amount REAL DEFAULT 0,
+            status TEXT DEFAULT 'draft',  -- draft, sent, reviewing, won, lost, expired
+            notes TEXT,
+            created_by INTEGER,
+            approved_by INTEGER,
+            approved_date TIMESTAMP,
+            sent_date TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_code) REFERENCES customers (customer_code),
+            FOREIGN KEY (created_by) REFERENCES users (id),
+            FOREIGN KEY (approved_by) REFERENCES users (id)
+        )
+    ''')
+    
+    # 견적서 상세
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS quotation_details (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            quote_number TEXT NOT NULL,
+            line_no INTEGER NOT NULL,
+            product_code TEXT,
+            product_name TEXT NOT NULL,
+            description TEXT,
+            quantity INTEGER NOT NULL,
+            unit_price REAL NOT NULL,
+            amount REAL NOT NULL,
+            FOREIGN KEY (quote_number) REFERENCES quotations (quote_number)
+        )
+    ''')
+    
+    # 수주 헤더
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sales_orders (
+            order_number TEXT PRIMARY KEY,
+            order_date DATE NOT NULL,
+            customer_code TEXT NOT NULL,
+            quote_number TEXT,
+            delivery_date DATE,
+            total_amount REAL DEFAULT 0,
+            status TEXT DEFAULT 'received',  -- received, confirmed, in_production, ready_for_delivery, completed, cancelled
+            payment_status TEXT DEFAULT 'pending',  -- pending, partial, completed
+            shipping_address TEXT,
+            notes TEXT,
+            created_by INTEGER,
+            approved_by INTEGER,
+            approved_date TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_code) REFERENCES customers (customer_code),
+            FOREIGN KEY (quote_number) REFERENCES quotations (quote_number),
+            FOREIGN KEY (created_by) REFERENCES users (id),
+            FOREIGN KEY (approved_by) REFERENCES users (id)
+        )
+    ''')
+    
+    # 수주 상세
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sales_order_details (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_number TEXT NOT NULL,
+            line_no INTEGER NOT NULL,
+            product_code TEXT,
+            product_name TEXT NOT NULL,
+            description TEXT,
+            quantity INTEGER NOT NULL,
+            unit_price REAL NOT NULL,
+            amount REAL NOT NULL,
+            delivered_qty INTEGER DEFAULT 0,
+            FOREIGN KEY (order_number) REFERENCES sales_orders (order_number)
+        )
+    ''')
+    
+    # 영업 활동
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sales_activities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            activity_date DATE NOT NULL,
+            activity_type TEXT NOT NULL,  -- call, email, meeting, demo, follow_up
+            customer_code TEXT,
+            contact_person TEXT,
+            subject TEXT,
+            description TEXT,
+            result TEXT,
+            next_action TEXT,
+            next_action_date DATE,
+            sales_person_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_code) REFERENCES customers (customer_code),
+            FOREIGN KEY (sales_person_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # 영업 기회 (Opportunity)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sales_opportunities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            opportunity_name TEXT NOT NULL,
+            customer_code TEXT NOT NULL,
+            estimated_amount REAL DEFAULT 0,
+            probability INTEGER DEFAULT 50,  -- 0-100%
+            expected_close_date DATE,
+            stage TEXT DEFAULT 'prospecting',  -- prospecting, qualification, proposal, negotiation, closed_won, closed_lost
+            source TEXT,  -- referral, website, cold_call, exhibition, etc.
+            competitor TEXT,
+            sales_person_id INTEGER,
+            description TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_code) REFERENCES customers (customer_code),
+            FOREIGN KEY (sales_person_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # 제품 마스터 (영업용)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS products (
+            product_code TEXT PRIMARY KEY,
+            product_name TEXT NOT NULL,
+            category TEXT,
+            description TEXT,
+            unit_price REAL DEFAULT 0,
+            cost_price REAL DEFAULT 0,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # 가격 정책
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS price_policies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            policy_name TEXT NOT NULL,
+            customer_grade TEXT,  -- VIP, Gold, Silver, Bronze
+            product_category TEXT,
+            discount_rate REAL DEFAULT 0,
+            min_quantity INTEGER DEFAULT 1,
+            effective_date DATE NOT NULL,
+            expiry_date DATE,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # 배송 정보
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS deliveries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            delivery_number TEXT UNIQUE NOT NULL,
+            order_number TEXT NOT NULL,
+            delivery_date DATE,
+            tracking_number TEXT,
+            delivery_company TEXT,
+            delivery_status TEXT DEFAULT 'preparing',  -- preparing, shipped, in_transit, delivered, failed
+            recipient_name TEXT,
+            recipient_phone TEXT,
+            delivery_address TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (order_number) REFERENCES sales_orders (order_number)
+        )
+    ''')
+    
+    # 고객 연락 이력
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS customer_contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_code TEXT NOT NULL,
+            contact_date DATE NOT NULL,
+            contact_type TEXT NOT NULL,  -- phone, email, visit, video_call
+            contact_person TEXT,
+            subject TEXT,
+            content TEXT,
+            result TEXT,
+            sales_person_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_code) REFERENCES customers (customer_code),
+            FOREIGN KEY (sales_person_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # 매출 목표
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sales_targets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_year INTEGER NOT NULL,
+            target_month INTEGER,
+            sales_person_id INTEGER,
+            customer_code TEXT,
+            product_category TEXT,
+            target_amount REAL NOT NULL,
+            actual_amount REAL DEFAULT 0,
+            achievement_rate REAL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (sales_person_id) REFERENCES users (id),
+            FOREIGN KEY (customer_code) REFERENCES customers (customer_code)
+        )
+    ''')
+    
     # 기본 관리자 계정 생성
     cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'admin'")
     if cursor.fetchone()[0] == 0:
@@ -337,9 +678,39 @@ def init_database():
             sample_items
         )
     
+    # 기본 고객 데이터 추가 (V1.0)
+    cursor.execute("SELECT COUNT(*) FROM customers")
+    if cursor.fetchone()[0] == 0:
+        sample_customers = [
+            ('CUST001', '(주)테크놀로지', '123-45-67890', '김대표', '이부장', '02-1234-5678', 
+             'lee@technology.co.kr', '서울시 강남구 테헤란로 123', 'VIP', 'NET30', 100000000),
+            ('CUST002', '글로벌산업(주)', '234-56-78901', '박사장', '최과장', '031-987-6543',
+             'choi@global.com', '경기도 수원시 영통구 월드컵로 456', 'Gold', 'NET60', 50000000),
+            ('CUST003', '스마트제조', '345-67-89012', '정대표', '김대리', '032-555-1234',
+             'kim@smart.kr', '인천시 남동구 논현로 789', 'Silver', 'NET30', 30000000)
+        ]
+        cursor.executemany(
+            "INSERT INTO customers (customer_code, customer_name, business_no, ceo_name, contact_person, phone, email, address, grade, payment_terms, credit_limit, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+            sample_customers
+        )
+    
+    # 기본 제품 데이터 추가 (V1.0)
+    cursor.execute("SELECT COUNT(*) FROM products")
+    if cursor.fetchone()[0] == 0:
+        sample_products = [
+            ('PROD001', 'Smart MES 시스템', 'Software', 'MES 솔루션 패키지', 50000000, 30000000),
+            ('PROD002', 'ERP 통합 솔루션', 'Software', 'ERP 시스템 구축', 80000000, 50000000),
+            ('PROD003', '자동화 제어시스템', 'Hardware', 'PLC 기반 자동화', 30000000, 18000000)
+        ]
+        cursor.executemany(
+            "INSERT INTO products (product_code, product_name, category, description, unit_price, cost_price, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)",
+            sample_products
+        )
+    
     conn.commit()
     conn.close()
     logger.info("데이터베이스 초기화 완료")
+
 # 설정 로드
 config = load_config()
 
@@ -380,8 +751,8 @@ def create_navbar():
                         dbc.NavItem(dbc.NavLink("대시보드", href="/", id="nav-dashboard")),
                         dbc.NavItem(dbc.NavLink("MES", href="/mes", id="nav-mes")) if config['modules']['mes'] else None,
                         dbc.NavItem(dbc.NavLink("재고관리", href="/inventory", id="nav-inventory")) if config['modules']['inventory'] else None,
-                        dbc.NavItem(dbc.NavLink("구매관리", href="/purchase", id="nav-purchase", disabled=True)) if config['modules']['purchase'] else None,
-                        dbc.NavItem(dbc.NavLink("영업관리", href="/sales", id="nav-sales", disabled=True)) if config['modules']['sales'] else None,
+                        dbc.NavItem(dbc.NavLink("구매관리", href="/purchase", id="nav-purchase")) if config['modules']['purchase'] else None,
+                        dbc.NavItem(dbc.NavLink("영업관리", href="/sales", id="nav-sales")) if config['modules']['sales'] else None,  # V1.0 추가
                         dbc.NavItem(dbc.NavLink("회계관리", href="/accounting", id="nav-accounting")) if config['modules'].get('accounting', False) else None,
                         dbc.NavItem(dbc.NavLink("설정", href="/settings", id="nav-settings")),
                     ], className="ms-auto", navbar=True),
@@ -467,7 +838,7 @@ def create_dashboard():
     return dbc.Container([
         dbc.Row([
             dbc.Col([
-                html.H1("Smart MES-ERP 대시보드", className="mb-4"),
+                html.H1(f"Smart MES-ERP 대시보드 V{config['system']['version']}", className="mb-4"),
                 html.Hr()
             ])
         ]),
@@ -533,23 +904,23 @@ def create_dashboard():
                                         className="me-2 p-2"
                                     ),
                                     dbc.Badge(
-                                        ["구매관리 ", html.I(className="fas fa-times")],
+                                        ["구매관리 ", html.I(className="fas fa-check")],
                                         color="success" if config['modules']['purchase'] else "secondary",
                                         className="me-2 p-2"
                                     ),
                                     dbc.Badge(
-                                        ["영업관리 ", html.I(className="fas fa-times")],
+                                        ["영업관리 ", html.I(className="fas fa-check")],  # V1.0 추가
                                         color="success" if config['modules']['sales'] else "secondary",
                                         className="me-2 p-2"
                                     ),
-                                    dbc.Badge(  # ← 여기부터 추가
+                                    dbc.Badge(
                                         ["회계관리 ", html.I(className="fas fa-check")],
                                         color="success" if config['modules'].get('accounting', False) else "secondary",
                                         className="me-2 p-2"
-                                    )  # ← 여기까지 추가
+                                    )
                                 ])
                             ], className="mb-3"),
-                            html.P("✅ 활성 모듈은 메뉴에서 접근 가능합니다.", className="text-muted small")
+                            html.P(f"✅ 활성 모듈은 메뉴에서 접근 가능합니다. (V{config['system']['version']})", className="text-muted small")
                         ])
                     ])
                 ])
@@ -604,8 +975,7 @@ app.layout = html.Div([
     dcc.Interval(id='interval-component', interval=config['system']['update_interval'])
 ])
 
-# 페이지 라우팅 콜백 수정
-# 페이지 라우팅 콜백에 구매관리 추가
+# 페이지 라우팅 콜백
 @app.callback(
     Output('page-content', 'children'),
     Input('url', 'pathname'),
@@ -640,13 +1010,20 @@ def display_page(pathname, session_data):
         except ImportError as e:
             logger.error(f"구매관리 모듈 로드 실패: {e}")
             return error_layout("구매관리", e)
-    elif pathname == '/accounting':  # ← 이 부분부터
+    elif pathname == '/sales':  # V1.0 영업관리 라우팅 추가
+        try:
+            from modules.sales.layouts import create_sales_layout
+            return create_sales_layout()
+        except ImportError as e:
+            logger.error(f"영업관리 모듈 로드 실패: {e}")
+            return error_layout("영업관리", e)
+    elif pathname == '/accounting':
         try:
             from modules.accounting.layouts import create_accounting_layout
             return create_accounting_layout()
         except ImportError as e:
             logger.error(f"회계관리 모듈 로드 실패: {e}")
-            return error_layout("회계관리", e)  # ← 여기까지 추가
+            return error_layout("회계관리", e)
     elif pathname == '/settings':
         return create_settings_page()
     else:
@@ -747,29 +1124,27 @@ def create_settings_page():
                                         dbc.Switch(
                                             id="module-purchase-switch",
                                             value=config['modules']['purchase'],
-                                            className="float-end",
-                                            disabled=True
+                                            className="float-end"
                                         )
                                     ], width=4)
                                 ])
-                            ], color="light"),
-                            dbc.ListGroupItem([
+                            ]),
+                            dbc.ListGroupItem([  # V1.0 영업관리 추가
                                 dbc.Row([
                                     dbc.Col([
                                         html.H5("영업관리", className="mb-0"),
-                                        html.Small("견적, 수주, 고객 관리", className="text-muted")
+                                        html.Small("견적, 수주, 고객 관리, CRM", className="text-muted")
                                     ], width=8),
                                     dbc.Col([
                                         dbc.Switch(
                                             id="module-sales-switch",
-                                            value=config['modules']['sales'],
-                                            className="float-end",
-                                            disabled=True
+                                            value=config['modules'].get('sales', False),
+                                            className="float-end"
                                         )
                                     ], width=4)
                                 ])
-                            ], color="light"),
-                            dbc.ListGroupItem([  # ← 여기부터 추가
+                            ]),
+                            dbc.ListGroupItem([
                                 dbc.Row([
                                     dbc.Col([
                                         html.H5("회계관리", className="mb-0"),
@@ -783,7 +1158,7 @@ def create_settings_page():
                                         )
                                     ], width=4)
                                 ])
-                            ])  # ← 여기까지 추가
+                            ])
                         ])
                     ])
                 ])
@@ -980,6 +1355,26 @@ def update_dashboard(n):
             ], color="warning", className="mb-2")
         )
     
+    # V1.0 영업관리 알림 추가
+    try:
+        # 견적서 만료 임박 알림
+        cursor.execute("""
+            SELECT COUNT(*) FROM quotations 
+            WHERE validity_date <= date('now', '+3 days') 
+            AND status IN ('sent', 'reviewing')
+        """)
+        expiring_quotes = cursor.fetchone()[0]
+        
+        if expiring_quotes > 0:
+            alerts.append(
+                dbc.Alert([
+                    html.I(className="fas fa-clock me-2"),
+                    f"{expiring_quotes}개 견적서가 곧 만료됩니다."
+                ], color="info", className="mb-2")
+            )
+    except:
+        pass  # 테이블이 없을 경우 무시
+    
     # 목표 달성 알림
     cursor.execute("""
         SELECT COUNT(*) FROM work_logs 
@@ -1026,8 +1421,9 @@ def toggle_debug_console(n_clicks, current_style):
     Input('save-settings-btn', 'n_clicks'),
     [State('module-mes-switch', 'value'),
      State('module-inventory-switch', 'value'),
-          State('module-purchase-switch', 'value'),  # ← 이 줄 추가
-     State('module-accounting-switch', 'value'),  # ← 이 줄 추가
+     State('module-purchase-switch', 'value'),
+     State('module-sales-switch', 'value'),      # V1.0 추가
+     State('module-accounting-switch', 'value'),
      State('auth-enabled-switch', 'value'),
      State('session-timeout', 'value'),
      State('update-interval', 'value'),
@@ -1035,15 +1431,16 @@ def toggle_debug_console(n_clicks, current_style):
     prevent_initial_call=True
 )
 def save_settings(n_clicks, mes_enabled, inventory_enabled, purchase_enabled,
-                 accounting_enabled, auth_enabled, session_timeout, 
+                 sales_enabled, accounting_enabled, auth_enabled, session_timeout, 
                  update_interval, language):
     """시스템 설정 저장"""
     global config
     
     config['modules']['mes'] = mes_enabled
     config['modules']['inventory'] = inventory_enabled
-    config['modules']['purchase'] = purchase_enabled  # ← 이 줄 추가
-    config['modules']['accounting'] = accounting_enabled  # ← 이 줄 추가
+    config['modules']['purchase'] = purchase_enabled
+    config['modules']['sales'] = sales_enabled      # V1.0 추가
+    config['modules']['accounting'] = accounting_enabled
     config['authentication']['enabled'] = auth_enabled
     config['authentication']['session_timeout'] = session_timeout
     config['system']['update_interval'] = update_interval * 1000
@@ -1074,19 +1471,26 @@ try:
 except ImportError:
     logger.warning("재고관리 모듈 콜백을 불러올 수 없습니다.")
 
-# 구매관리 부분만 주석 처리
+# 구매관리 모듈 콜백 등록 (모듈이 있을 경우)
 try:
     from modules.purchase.callbacks import register_purchase_callbacks
     register_purchase_callbacks(app)
 except ImportError:
     logger.warning("구매관리 모듈 콜백을 불러올 수 없습니다.")
 
-# 회계관리 모듈 콜백 등록  # ← 여기부터 추가
+# 영업관리 모듈 콜백 등록 (V1.0 추가)
+try:
+    from modules.sales.callbacks import register_sales_callbacks
+    register_sales_callbacks(app)
+except ImportError:
+    logger.warning("영업관리 모듈 콜백을 불러올 수 없습니다.")
+
+# 회계관리 모듈 콜백 등록
 try:
     from modules.accounting.callbacks import register_accounting_callbacks
     register_accounting_callbacks(app)
 except ImportError:
-    logger.warning("회계관리 모듈 콜백을 불러올 수 없습니다.")  # ← 여기까지 추가
+    logger.warning("회계관리 모듈 콜백을 불러올 수 없습니다.")
 
 if __name__ == '__main__':
     # 디렉토리 생성
@@ -1098,8 +1502,8 @@ if __name__ == '__main__':
     init_database()
     
     # 앱 실행
-    logger.info(f"{config['system']['name']} 시작")
+    logger.info(f"{config['system']['name']} V{config['system']['version']} 시작")
     logger.info("http://localhost:8050 에서 접속 가능")
+    logger.info(f"활성 모듈: {[k for k, v in config['modules'].items() if v]}")
     
     app.run(debug=True, host='0.0.0.0', port=8050, use_reloader=False)
-    
