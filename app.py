@@ -245,6 +245,7 @@ def create_navbar():
                         dbc.NavItem(dbc.NavLink("재고관리", href="/inventory", id="nav-inventory")) if config['modules']['inventory'] else None,
                         dbc.NavItem(dbc.NavLink("구매관리", href="/purchase", id="nav-purchase", disabled=True)) if config['modules']['purchase'] else None,
                         dbc.NavItem(dbc.NavLink("영업관리", href="/sales", id="nav-sales", disabled=True)) if config['modules']['sales'] else None,
+                        dbc.NavItem(dbc.NavLink("회계관리", href="/accounting", id="nav-accounting")) if config['modules'].get('accounting', False) else None,
                         dbc.NavItem(dbc.NavLink("설정", href="/settings", id="nav-settings")),
                     ], className="ms-auto", navbar=True),
                     width="auto",
@@ -403,7 +404,12 @@ def create_dashboard():
                                         ["영업관리 ", html.I(className="fas fa-times")],
                                         color="success" if config['modules']['sales'] else "secondary",
                                         className="me-2 p-2"
-                                    )
+                                    ),
+                                    dbc.Badge(  # ← 여기부터 추가
+                                        ["회계관리 ", html.I(className="fas fa-check")],
+                                        color="success" if config['modules'].get('accounting', False) else "secondary",
+                                        className="me-2 p-2"
+                                    )  # ← 여기까지 추가
                                 ])
                             ], className="mb-3"),
                             html.P("✅ 활성 모듈은 메뉴에서 접근 가능합니다.", className="text-muted small")
@@ -497,6 +503,13 @@ def display_page(pathname, session_data):
         except ImportError as e:
             logger.error(f"구매관리 모듈 로드 실패: {e}")
             return error_layout("구매관리", e)
+    elif pathname == '/accounting':  # ← 이 부분부터
+        try:
+            from modules.accounting.layouts import create_accounting_layout
+            return create_accounting_layout()
+        except ImportError as e:
+            logger.error(f"회계관리 모듈 로드 실패: {e}")
+            return error_layout("회계관리", e)  # ← 여기까지 추가
     elif pathname == '/settings':
         return create_settings_page()
     else:
@@ -618,7 +631,22 @@ def create_settings_page():
                                         )
                                     ], width=4)
                                 ])
-                            ], color="light")
+                            ], color="light"),
+                            dbc.ListGroupItem([  # ← 여기부터 추가
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.H5("회계관리", className="mb-0"),
+                                        html.Small("전표, 재무제표, 예산 관리", className="text-muted")
+                                    ], width=8),
+                                    dbc.Col([
+                                        dbc.Switch(
+                                            id="module-accounting-switch",
+                                            value=config['modules'].get('accounting', False),
+                                            className="float-end"
+                                        )
+                                    ], width=4)
+                                ])
+                            ])  # ← 여기까지 추가
                         ])
                     ])
                 ])
@@ -861,19 +889,24 @@ def toggle_debug_console(n_clicks, current_style):
     Input('save-settings-btn', 'n_clicks'),
     [State('module-mes-switch', 'value'),
      State('module-inventory-switch', 'value'),
+          State('module-purchase-switch', 'value'),  # ← 이 줄 추가
+     State('module-accounting-switch', 'value'),  # ← 이 줄 추가
      State('auth-enabled-switch', 'value'),
      State('session-timeout', 'value'),
      State('update-interval', 'value'),
      State('language-select', 'value')],
     prevent_initial_call=True
 )
-def save_settings(n_clicks, mes_enabled, inventory_enabled, auth_enabled, 
-                 session_timeout, update_interval, language):
+def save_settings(n_clicks, mes_enabled, inventory_enabled, purchase_enabled,
+                 accounting_enabled, auth_enabled, session_timeout, 
+                 update_interval, language):
     """시스템 설정 저장"""
     global config
     
     config['modules']['mes'] = mes_enabled
     config['modules']['inventory'] = inventory_enabled
+    config['modules']['purchase'] = purchase_enabled  # ← 이 줄 추가
+    config['modules']['accounting'] = accounting_enabled  # ← 이 줄 추가
     config['authentication']['enabled'] = auth_enabled
     config['authentication']['session_timeout'] = session_timeout
     config['system']['update_interval'] = update_interval * 1000
@@ -906,11 +939,17 @@ except ImportError:
 
 # 구매관리 부분만 주석 처리
 try:
-    # from modules.purchase.callbacks import register_purchase_callbacks
-    # register_purchase_callbacks(app)
-    pass
+    # from modules.purchase.callbacks import register_purchase_callbacks  # ← 주석 처리
+    # register_purchase_callbacks(app)  # ← 주석 처리
 except ImportError:
     logger.warning("구매관리 모듈 콜백을 불러올 수 없습니다.")
+
+# 회계관리 모듈 콜백 등록  # ← 여기부터 추가
+try:
+    from modules.accounting.callbacks import register_accounting_callbacks
+    register_accounting_callbacks(app)
+except ImportError:
+    logger.warning("회계관리 모듈 콜백을 불러올 수 없습니다.")  # ← 여기까지 추가
 
 if __name__ == '__main__':
     # 디렉토리 생성
