@@ -41,8 +41,9 @@ def load_config():
         'modules': {
             'mes': True,
             'inventory': True,
-            'purchase': False,
-            'sales': False
+            'purchase': True,
+            'sales': False,
+            'accounting': True  
         },
         'authentication': {
             'enabled': True,
