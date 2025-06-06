@@ -245,12 +245,12 @@ def register_accounting_callbacks(app):
         finally:
             conn.close()
     
-    # 매출/매입 현황 업데이트
+    # 매출/매입 현황 업데이트 - ID 변경
     @app.callback(
-        [Output('monthly-sales', 'children'),
-         Output('monthly-purchase', 'children'),
-         Output('gross-profit', 'children'),
-         Output('vat-amount', 'children')],
+        [Output('accounting-monthly-sales', 'children'),
+         Output('accounting-monthly-purchase', 'children'),
+         Output('accounting-gross-profit', 'children'),
+         Output('accounting-vat-amount', 'children')],
         Input('interval-component', 'n_intervals')
     )
     def update_sales_purchase_summary(n):
