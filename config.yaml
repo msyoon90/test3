@@ -1,3 +1,4 @@
+
 # Smart MES-ERP System Configuration
 # 시스템 설정 파일
 
@@ -13,6 +14,7 @@ modules:
   inventory: true    # 재고관리 - 활성화
   purchase: true     # 구매관리 - 활성화 (V0.5 신규)
   sales: false       # 영업관리 - 개발 중
+  accounting: true   # 회계관리 - 활성화 (V0.7 신규)
 
 # 인증 설정
 authentication:
