@@ -1,0 +1,36 @@
+# Smart MES-ERP System Configuration
+# 시스템 설정 파일
+
+# 시스템 기본 설정
+system:
+  name: Smart MES-ERP
+  language: ko
+  update_interval: 2000  # 실시간 업데이트 주기 (밀리초)
+
+# 모듈 활성화 설정
+modules:
+  mes: true          # MES (생산관리) - 활성화
+  inventory: true    # 재고관리 - 활성화
+  purchase: true     # 구매관리 - 활성화 (V0.5 신규)
+  sales: false       # 영업관리 - 개발 중
+
+# 인증 설정
+authentication:
+  enabled: true           # 로그인 기능 사용 여부
+  session_timeout: 30     # 세션 타임아웃 (분)
+
+# 데이터베이스 설정
+database:
+  path: data/database.db  # SQLite 데이터베이스 파일 경로
+
+# 로깅 설정
+logging:
+  level: INFO             # 로그 레벨 (DEBUG, INFO, WARNING, ERROR)
+  file: logs/app.log      # 로그 파일 경로
+
+# 백업 설정
+backup:
+  enabled: true           # 자동 백업 사용
+  interval: daily         # 백업 주기 (daily, weekly, monthly)
+  path: backups/          # 백업 파일 저장 경로
+  retention: 30           # 백업 보관 기간 (일)
