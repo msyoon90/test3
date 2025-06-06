@@ -939,8 +939,8 @@ except ImportError:
 
 # 구매관리 부분만 주석 처리
 try:
-    # from modules.purchase.callbacks import register_purchase_callbacks  # ← 주석 처리
-    # register_purchase_callbacks(app)  # ← 주석 처리
+    from modules.purchase.callbacks import register_purchase_callbacks
+    register_purchase_callbacks(app)
 except ImportError:
     logger.warning("구매관리 모듈 콜백을 불러올 수 없습니다.")
 
