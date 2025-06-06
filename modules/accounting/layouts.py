@@ -188,13 +188,13 @@ def create_voucher_management():
 def create_sales_purchase():
     """매출/매입 관리"""
     return html.Div([
-        # 매출/매입 현황
+        # 매출/매입 현황 - ID 변경
         dbc.Row([
             dbc.Col([
                 dbc.Card([
                     dbc.CardHeader("이번달 매출"),
                     dbc.CardBody([
-                        html.H3("₩0", id="monthly-sales", className="text-primary"),
+                        html.H3("₩0", id="accounting-monthly-sales", className="text-primary"),
                         html.P("전월 대비: 0%", className="text-muted mb-0")
                     ])
                 ])
@@ -203,7 +203,7 @@ def create_sales_purchase():
                 dbc.Card([
                     dbc.CardHeader("이번달 매입"),
                     dbc.CardBody([
-                        html.H3("₩0", id="monthly-purchase", className="text-danger"),
+                        html.H3("₩0", id="accounting-monthly-purchase", className="text-danger"),
                         html.P("전월 대비: 0%", className="text-muted mb-0")
                     ])
                 ])
@@ -212,7 +212,7 @@ def create_sales_purchase():
                 dbc.Card([
                     dbc.CardHeader("매출총이익"),
                     dbc.CardBody([
-                        html.H3("₩0", id="gross-profit", className="text-success"),
+                        html.H3("₩0", id="accounting-gross-profit", className="text-success"),
                         html.P("이익률: 0%", className="text-muted mb-0")
                     ])
                 ])
@@ -221,7 +221,7 @@ def create_sales_purchase():
                 dbc.Card([
                     dbc.CardHeader("부가세"),
                     dbc.CardBody([
-                        html.H3("₩0", id="vat-amount", className="text-info"),
+                        html.H3("₩0", id="accounting-vat-amount", className="text-info"),
                         html.P("예정신고", className="text-muted mb-0")
                     ])
                 ])
