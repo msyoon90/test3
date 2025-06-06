@@ -690,26 +690,6 @@ def register_purchase_callbacks(app):
     # 거래처 저장
 
 
-@app.callback(
-    Output('supplier-modal-message', 'children'),
-    Input('save-supplier-btn', 'n_clicks'),
-    [State('modal-supplier-code', 'value'),
-     State('modal-supplier-name', 'value'),
-     State('modal-business-no', 'value'),
-     State('modal-ceo-name', 'value'),
-     State('modal-contact-person', 'value'),
-     State('modal-phone', 'value'),
-     State('modal-email', 'value'),
-     State('modal-address', 'value'),
-     State('modal-payment-terms', 'value'),
-     State('modal-leadtime', 'value'),
-     State('modal-rating', 'value')],
-    prevent_initial_call=True
-)
-def save_supplier(n_clicks, supplier_code, supplier_name, business_no,
-                  ceo_name, contact_person, phone, email, address,
-                  payment_terms, leadtime, rating):
-    """거래처 저장"""
     if not all([supplier_code, supplier_name]):
         return dbc.Alert("거래처 코드와 거래처명은 필수입니다.", color="warning")
 
@@ -742,6 +722,27 @@ def save_supplier(n_clicks, supplier_code, supplier_name, business_no,
     except Exception as e:
         logger.error(f"거래처 저장 실패: {e}")
         return dbc.Alert(f"저장 중 오류가 발생했습니다: {str(e)}", color="danger")
+
+    @app.callback(
+        Output('supplier-modal-message', 'children'),
+        Input('save-supplier-btn', 'n_clicks'),
+        [State('modal-supplier-code', 'value'),
+         State('modal-supplier-name', 'value'),
+         State('modal-business-no', 'value'),
+         State('modal-ceo-name', 'value'),
+         State('modal-contact-person', 'value'),
+         State('modal-phone', 'value'),
+         State('modal-email', 'value'),
+         State('modal-address', 'value'),
+         State('modal-payment-terms', 'value'),
+         State('modal-leadtime', 'value'),
+         State('modal-rating', 'value')],
+        prevent_initial_call=True
+    )
+    def save_supplier(n_clicks, supplier_code, supplier_name, business_no,
+                      ceo_name, contact_person, phone, email, address,
+                      payment_terms, leadtime, rating):
+        """거래처 저장"""
 
 
 # 거래처 리스트 조회
