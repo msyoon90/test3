@@ -176,6 +176,144 @@ def init_database():
         )
     ''')
     
+    # 계정과목 마스터
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS account_master (
+            account_code TEXT PRIMARY KEY,
+            account_name TEXT NOT NULL,
+            account_type TEXT NOT NULL,
+            parent_code TEXT,
+            level INTEGER DEFAULT 1,
+            is_control BOOLEAN DEFAULT 0,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # 전표 헤더
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS journal_header (
+            voucher_no TEXT PRIMARY KEY,
+            voucher_date DATE NOT NULL,
+            voucher_type TEXT NOT NULL,
+            description TEXT,
+            total_debit REAL DEFAULT 0,
+            total_credit REAL DEFAULT 0,
+            status TEXT DEFAULT 'draft',
+            created_by INTEGER,
+            approved_by INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (created_by) REFERENCES users (id),
+            FOREIGN KEY (approved_by) REFERENCES users (id)
+        )
+    ''')
+    
+    # 전표 상세
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS journal_details (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            voucher_no TEXT NOT NULL,
+            line_no INTEGER NOT NULL,
+            account_code TEXT NOT NULL,
+            debit_amount REAL DEFAULT 0,
+            credit_amount REAL DEFAULT 0,
+            description TEXT,
+            cost_center TEXT,
+            FOREIGN KEY (voucher_no) REFERENCES journal_header (voucher_no),
+            FOREIGN KEY (account_code) REFERENCES account_master (account_code)
+        )
+    ''')
+    
+    # 세금계산서
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tax_invoice (
+            invoice_no TEXT PRIMARY KEY,
+            invoice_date DATE NOT NULL,
+            invoice_type TEXT NOT NULL,
+            customer_code TEXT,
+            supplier_code TEXT,
+            business_no TEXT,
+            company_name TEXT,
+            ceo_name TEXT,
+            address TEXT,
+            supply_amount REAL DEFAULT 0,
+            tax_amount REAL DEFAULT 0,
+            total_amount REAL DEFAULT 0,
+            status TEXT DEFAULT 'draft',
+            voucher_no TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (voucher_no) REFERENCES journal_header (voucher_no)
+        )
+    ''')
+    
+    # 예산 마스터
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS budget_master (
+            budget_id TEXT PRIMARY KEY,
+            budget_year INTEGER NOT NULL,
+            budget_month INTEGER,
+            department TEXT,
+            account_code TEXT NOT NULL,
+            budget_amount REAL DEFAULT 0,
+            actual_amount REAL DEFAULT 0,
+            variance REAL DEFAULT 0,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (account_code) REFERENCES account_master (account_code)
+        )
+    ''')
+    
+    # 원가 계산
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS cost_calculation (
+            calc_id TEXT PRIMARY KEY,
+            calc_date DATE NOT NULL,
+            product_code TEXT NOT NULL,
+            material_cost REAL DEFAULT 0,
+            labor_cost REAL DEFAULT 0,
+            overhead_cost REAL DEFAULT 0,
+            total_cost REAL DEFAULT 0,
+            production_qty INTEGER DEFAULT 0,
+            unit_cost REAL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # 결산 마스터
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS closing_master (
+            closing_id TEXT PRIMARY KEY,
+            closing_year INTEGER NOT NULL,
+            closing_month INTEGER NOT NULL,
+            closing_type TEXT NOT NULL,
+            status TEXT DEFAULT 'open',
+            closed_date TIMESTAMP,
+            closed_by INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (closed_by) REFERENCES users (id)
+        )
+    ''')
+    
+    # 고정자산 마스터
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS fixed_asset (
+            asset_code TEXT PRIMARY KEY,
+            asset_name TEXT NOT NULL,
+            asset_type TEXT,
+            acquisition_date DATE NOT NULL,
+            acquisition_cost REAL DEFAULT 0,
+            depreciation_method TEXT DEFAULT 'straight',
+            useful_life INTEGER DEFAULT 5,
+            salvage_value REAL DEFAULT 0,
+            accumulated_depreciation REAL DEFAULT 0,
+            book_value REAL DEFAULT 0,
+            disposal_date DATE,
+            disposal_amount REAL DEFAULT 0,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
     # 기본 관리자 계정 생성
     cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'admin'")
     if cursor.fetchone()[0] == 0:
@@ -184,7 +322,7 @@ def init_database():
             ('admin', 'admin123', 'admin')
         )
     
-    # 샘플 품목 데이터 추가 (재고관리용)
+    # 샘플 품목 데이터 추가
     cursor.execute("SELECT COUNT(*) FROM item_master")
     if cursor.fetchone()[0] == 0:
         sample_items = [
@@ -202,7 +340,6 @@ def init_database():
     conn.commit()
     conn.close()
     logger.info("데이터베이스 초기화 완료")
-
 # 설정 로드
 config = load_config()
 
