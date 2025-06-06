@@ -186,19 +186,19 @@ V1.0에서 해결된 이슈
 IE 11 미지원
 
 🗺️ 로드맵
-V1.1 (2025년 8월)
+V1.1 (2025년)
 
 📋 품질관리 모듈
 📱 모바일 반응형 UI
 🌐 다국어 지원 (영어, 중국어)
 
-V1.2 (2025년 10월)
+V1.2 (2025년)
 
 👥 인사관리 모듈
 🔌 REST API
 ☁️ 클라우드 지원
 
-V1.3 (2025년 12월)
+V1.3 (2025년)
 
 🔧 설비관리 모듈
 📊 고급 분석 기능
@@ -217,14 +217,9 @@ Open a Pull Request
 
 📞 지원
 
-📧 Email: support@smart-mes-erp.com
-📚 Documentation: https://docs.smart-mes-erp.com
-💬 Discord: https://discord.gg/smartmeserp
-🐛 Issues: https://github.com/your-repo/smart-mes-erp/issues
-
-🙏 감사의 말
-이 프로젝트는 많은 오픈소스 커뮤니티의 도움으로 만들어졌습니다.
-특히 Plotly Dash 팀과 모든 기여자들에게 감사드립니다.
+👤 name : 윤     명     섭 
+📧 Email: msyoon@wistek.co.kr
+📞 Mobile : +82-10-8339-7652
 
 <div align="center">
   <p>Made with ❤️ by Smart Factory Team</p>
