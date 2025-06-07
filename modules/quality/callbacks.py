@@ -46,10 +46,10 @@ def register_quality_callbacks(app):
     
     # 검사 현황 업데이트
     @app.callback(
-        [Output('today-inspections', 'children'),
-         Output('pass-rate', 'children'),
-         Output('defect-rate', 'children'),
-         Output('calibration-due', 'children')],
+        [Output('quality-today-inspections', 'children'),
+         Output('quality-pass-rate', 'children'),
+         Output('quality-defect-rate', 'children'),
+         Output('quality-calibration-due', 'children')],
         Input('interval-component', 'n_intervals')
     )
     def update_inspection_summary(n):
@@ -450,10 +450,10 @@ def register_quality_callbacks(app):
     
     # 불량 현황 업데이트
     @app.callback(
-        [Output('monthly-defects', 'children'),
-         Output('critical-defects', 'children'),
-         Output('open-defects', 'children'),
-         Output('closed-defects', 'children')],
+        [Output('quality-monthly-defects', 'children'),
+         Output('quality-critical-defects', 'children'),
+         Output('quality-open-defects', 'children'),
+         Output('quality-closed-defects', 'children')],
         Input('interval-component', 'n_intervals')
     )
     def update_defect_summary(n):
