@@ -43,7 +43,7 @@ def create_quality_layout():
 def create_inspection_management():
     """검사 관리 화면"""
     return html.Div([
-        # 검사 현황 요약
+       # 검사 현황 요약
         dbc.Row([
             dbc.Col([
                 dbc.Card([
@@ -52,7 +52,7 @@ def create_inspection_management():
                             html.I(className="fas fa-clipboard-list fa-2x text-primary mb-2"),
                         ], className="text-center"),
                         html.H6("오늘 검사", className="text-muted text-center"),
-                        html.H3("0", id="today-inspections", className="text-center"),
+                        html.H3("0", id="quality-today-inspections", className="text-center"),  # ID 변경
                         html.P("건", className="text-muted mb-0 text-center")
                     ])
                 ], color="primary", outline=True)
@@ -64,7 +64,7 @@ def create_inspection_management():
                             html.I(className="fas fa-check-circle fa-2x text-success mb-2"),
                         ], className="text-center"),
                         html.H6("합격률", className="text-muted text-center"),
-                        html.H3("0%", id="pass-rate", className="text-center"),
+                        html.H3("0%", id="quality-pass-rate", className="text-center"),  # ID 변경
                         html.P("이번 주", className="text-muted mb-0 text-center")
                     ])
                 ], color="success", outline=True)
@@ -76,7 +76,7 @@ def create_inspection_management():
                             html.I(className="fas fa-exclamation-triangle fa-2x text-warning mb-2"),
                         ], className="text-center"),
                         html.H6("불량률", className="text-muted text-center"),
-                        html.H3("0%", id="defect-rate", className="text-center text-warning"),
+                        html.H3("0%", id="quality-defect-rate", className="text-center text-warning"),  # ID 변경
                         html.P("이번 주", className="text-muted mb-0 text-center")
                     ])
                 ], color="warning", outline=True)
@@ -88,7 +88,7 @@ def create_inspection_management():
                             html.I(className="fas fa-tools fa-2x text-info mb-2"),
                         ], className="text-center"),
                         html.H6("교정 예정", className="text-muted text-center"),
-                        html.H3("0", id="calibration-due", className="text-center"),
+                        html.H3("0", id="quality-calibration-due", className="text-center"),  # ID 변경
                         html.P("장비", className="text-muted mb-0 text-center")
                     ])
                 ], color="info", outline=True)
@@ -157,7 +157,7 @@ def create_defect_management():
                 dbc.Card([
                     dbc.CardHeader("이번 달 불량"),
                     dbc.CardBody([
-                        html.H3("0", id="monthly-defects", className="text-danger"),
+                        html.H3("0", id="quality-monthly-defects", className="text-danger"),  # ID 변경
                         html.P("건", className="text-muted mb-0")
                     ])
                 ])
@@ -166,7 +166,7 @@ def create_defect_management():
                 dbc.Card([
                     dbc.CardHeader("중대 불량"),
                     dbc.CardBody([
-                        html.H3("0", id="critical-defects", className="text-danger"),
+                        html.H3("0", id="quality-critical-defects", className="text-danger"),  # ID 변경
                         html.P("건", className="text-muted mb-0")
                     ])
                 ])
@@ -175,7 +175,7 @@ def create_defect_management():
                 dbc.Card([
                     dbc.CardHeader("처리 중"),
                     dbc.CardBody([
-                        html.H3("0", id="open-defects", className="text-warning"),
+                        html.H3("0", id="quality-open-defects", className="text-warning"),  # ID 변경
                         html.P("건", className="text-muted mb-0")
                     ])
                 ])
@@ -184,7 +184,7 @@ def create_defect_management():
                 dbc.Card([
                     dbc.CardHeader("완료"),
                     dbc.CardBody([
-                        html.H3("0", id="closed-defects", className="text-success"),
+                        html.H3("0", id="quality-closed-defects", className="text-success"),  # ID 변경
                         html.P("건", className="text-muted mb-0")
                     ])
                 ])
