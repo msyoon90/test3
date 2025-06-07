@@ -1,4 +1,4 @@
-# app.py - Smart MES-ERP V1.1 메인 애플리케이션 (품질관리 모듈 추가)
+# app.py - Smart MES-ERP V1.2 메인 애플리케이션 (인사관리 모듈 + REST API 추가)
 
 import dash
 from dash import dcc, html, Input, Output, State, callback_context, ALL, MATCH
@@ -14,6 +14,8 @@ import secrets
 import pandas as pd
 import plotly.graph_objs as go
 import plotly.express as px
+import hashlib
+import threading
 
 # 로깅 설정
 import os
@@ -35,7 +37,7 @@ def load_config():
     default_config = {
         'system': {
             'name': 'Smart MES-ERP',
-            'version': '1.1.0',
+            'version': '1.2.0',
             'language': 'ko',
             'update_interval': 2000  # 2초
         },
@@ -45,11 +47,22 @@ def load_config():
             'purchase': True,
             'sales': True,
             'accounting': True,
-            'quality': True  # V1.1 신규 추가
+            'quality': True,  # V1.1
+            'hr': True  # V1.2
         },
         'authentication': {
             'enabled': True,
-            'session_timeout': 30
+            'session_timeout': 30,
+            'jwt_secret_key': secrets.token_urlsafe(32),
+            'jwt_access_token_expires': 3600
+        },
+        'api': {  # V1.2
+            'enabled': True,
+            'host': '0.0.0.0',
+            'port': 5001,
+            'cors_origins': ['http://localhost:8050', 'http://localhost:3000'],
+            'rate_limit': '100 per hour',
+            'documentation': True
         },
         'database': {
             'path': 'data/database.db'
@@ -64,11 +77,38 @@ def load_config():
                 'Bronze': 0
             }
         },
-        'quality': {  # V1.1 품질관리 설정 추가
+        'quality': {  # V1.1
             'default_sampling_rate': 10,
             'target_defect_rate': 2.0,
             'spc_rules': ['rule1', 'rule2'],
             'calibration_reminder_days': 30
+        },
+        'hr': {  # V1.2
+            'work_hours': {
+                'start': '09:00',
+                'end': '18:00',
+                'break_time': 60
+            },
+            'overtime': {
+                'weekday_rate': 1.5,
+                'weekend_rate': 2.0,
+                'holiday_rate': 2.5
+            },
+            'leave': {
+                'annual_days': 15,
+                'sick_leave_days': 10,
+                'special_leave_days': 5
+            },
+            'payroll': {
+                'pay_day': 25,
+                'tax_rate': 0.033,
+                'insurance_rates': {
+                    'health': 0.0343,
+                    'pension': 0.045,
+                    'employment': 0.008,
+                    'accident': 0.007
+                }
+            }
         }
     }
     
@@ -109,6 +149,9 @@ def init_database():
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             role TEXT DEFAULT 'user',
+            department TEXT,
+            email TEXT,
+            phone TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -434,30 +477,8 @@ def init_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-
-    # app.py 파일에서 찾아야 할 부분 (약 459번째 줄):
-
-    # 고정자산 마스터
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS fixed_asset (
-            asset_code TEXT PRIMARY KEY,
-            asset_name TEXT NOT NULL,
-            asset_type TEXT,
-            acquisition_date DATE NOT NULL,
-            acquisition_cost REAL DEFAULT 0,
-            depreciation_method TEXT DEFAULT 'straight',
-            useful_life INTEGER DEFAULT 5,
-            salvage_value REAL DEFAULT 0,
-            accumulated_depreciation REAL DEFAULT 0,
-            book_value REAL DEFAULT 0,
-            disposal_date DATE,
-            disposal_amount REAL DEFAULT 0,
-            status TEXT DEFAULT 'active',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
     
-    # === V1.1 품질관리 테이블 === (여기부터 추가)
+    # === V1.1 품질관리 테이블 ===
     
     # 입고검사 테이블
     cursor.execute('''
@@ -852,12 +873,173 @@ def init_database():
         )
     ''')
     
-    # 기본 관리자 계정 생성
+    # === V1.2 인사관리 테이블 ===
+    
+    # 직원 마스터
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS employees (
+            emp_id TEXT PRIMARY KEY,
+            emp_name TEXT NOT NULL,
+            emp_name_en TEXT,
+            department TEXT NOT NULL,
+            position TEXT NOT NULL,
+            hire_date DATE NOT NULL,
+            birth_date DATE,
+            gender TEXT,
+            phone TEXT,
+            email TEXT,
+            address TEXT,
+            emergency_contact TEXT,
+            emergency_phone TEXT,
+            employee_type TEXT DEFAULT 'regular',
+            work_status TEXT DEFAULT 'active',
+            resignation_date DATE,
+            photo BLOB,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # 근태 기록
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            emp_id TEXT NOT NULL,
+            work_date DATE NOT NULL,
+            check_in_time TIMESTAMP,
+            check_out_time TIMESTAMP,
+            work_hours REAL DEFAULT 0,
+            overtime_hours REAL DEFAULT 0,
+            status TEXT DEFAULT 'normal',
+            late_minutes INTEGER DEFAULT 0,
+            early_leave_minutes INTEGER DEFAULT 0,
+            remarks TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (emp_id) REFERENCES employees (emp_id),
+            UNIQUE(emp_id, work_date)
+        )
+    ''')
+    
+    # 휴가 신청
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS leave_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            emp_id TEXT NOT NULL,
+            leave_type TEXT NOT NULL,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            leave_days REAL NOT NULL,
+            reason TEXT,
+            status TEXT DEFAULT 'pending',
+            approver_id TEXT,
+            approval_date TIMESTAMP,
+            approval_comment TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (emp_id) REFERENCES employees (emp_id),
+            FOREIGN KEY (approver_id) REFERENCES employees (emp_id)
+        )
+    ''')
+    
+    # 급여 정보
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS salary (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            emp_id TEXT NOT NULL,
+            salary_month TEXT NOT NULL,
+            basic_salary REAL DEFAULT 0,
+            position_allowance REAL DEFAULT 0,
+            meal_allowance REAL DEFAULT 0,
+            transport_allowance REAL DEFAULT 0,
+            overtime_pay REAL DEFAULT 0,
+            bonus REAL DEFAULT 0,
+            other_allowance REAL DEFAULT 0,
+            total_earning REAL DEFAULT 0,
+            income_tax REAL DEFAULT 0,
+            resident_tax REAL DEFAULT 0,
+            health_insurance REAL DEFAULT 0,
+            pension REAL DEFAULT 0,
+            employment_insurance REAL DEFAULT 0,
+            accident_insurance REAL DEFAULT 0,
+            other_deduction REAL DEFAULT 0,
+            total_deduction REAL DEFAULT 0,
+            net_salary REAL DEFAULT 0,
+            payment_date DATE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (emp_id) REFERENCES employees (emp_id),
+            UNIQUE(emp_id, salary_month)
+        )
+    ''')
+    
+    # 부서 마스터
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS departments (
+            dept_code TEXT PRIMARY KEY,
+            dept_name TEXT NOT NULL,
+            dept_name_en TEXT,
+            parent_dept TEXT,
+            dept_head TEXT,
+            location TEXT,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (dept_head) REFERENCES employees (emp_id)
+        )
+    ''')
+    
+    # 직급 마스터
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS positions (
+            position_code TEXT PRIMARY KEY,
+            position_name TEXT NOT NULL,
+            position_name_en TEXT,
+            position_level INTEGER,
+            min_salary REAL,
+            max_salary REAL,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # === V1.2 API 테이블 ===
+    
+    # API 토큰
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS api_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            name TEXT,
+            permissions TEXT,
+            expires_at TIMESTAMP,
+            last_used_at TIMESTAMP,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # API 로그
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS api_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            endpoint TEXT NOT NULL,
+            method TEXT NOT NULL,
+            user_id INTEGER,
+            ip_address TEXT,
+            request_body TEXT,
+            response_code INTEGER,
+            response_time REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # 기본 관리자 계정 생성 (V1.2: 비밀번호 해시화)
     cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'admin'")
     if cursor.fetchone()[0] == 0:
+        password_hash = hashlib.sha256('admin123'.encode()).hexdigest()
         cursor.execute(
-            "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-            ('admin', 'admin123', 'admin')
+            "INSERT INTO users (username, password, role, department, email, phone) VALUES (?, ?, ?, ?, ?, ?)",
+            ('admin', password_hash, 'admin', '경영지원', 'admin@company.com', '010-1234-5678')
         )
     
     # 샘플 품목 데이터 추가
@@ -950,7 +1132,8 @@ def create_navbar():
                         dbc.NavItem(dbc.NavLink("재고관리", href="/inventory", id="nav-inventory")) if config['modules']['inventory'] else None,
                         dbc.NavItem(dbc.NavLink("구매관리", href="/purchase", id="nav-purchase")) if config['modules']['purchase'] else None,
                         dbc.NavItem(dbc.NavLink("영업관리", href="/sales", id="nav-sales")) if config['modules']['sales'] else None,
-                        dbc.NavItem(dbc.NavLink("품질관리", href="/quality", id="nav-quality")) if config['modules'].get('quality', False) else None,  # V1.1 추가
+                        dbc.NavItem(dbc.NavLink("품질관리", href="/quality", id="nav-quality")) if config['modules'].get('quality', False) else None,
+                        dbc.NavItem(dbc.NavLink("인사관리", href="/hr", id="nav-hr")) if config['modules'].get('hr', False) else None,  # V1.2 추가
                         dbc.NavItem(dbc.NavLink("회계관리", href="/accounting", id="nav-accounting")) if config['modules'].get('accounting', False) else None,
                         dbc.NavItem(dbc.NavLink("설정", href="/settings", id="nav-settings")),
                     ], className="ms-auto", navbar=True),
@@ -1053,7 +1236,11 @@ def create_dashboard():
                             "시스템 정상 작동 중"
                         ]),
                         html.P(f"업데이트 주기: {config['system']['update_interval']/1000}초"),
-                        html.P(f"활성 모듈: {sum(config['modules'].values())}개")
+                        html.P(f"활성 모듈: {sum(config['modules'].values())}개"),
+                        html.P([
+                            html.I(className="fas fa-plug text-info me-2"),
+                            f"API 서버: {'활성' if config.get('api', {}).get('enabled', False) else '비활성'}"
+                        ], className="mb-0")
                     ])
                 ])
             ], lg=4, className="mb-4"),
@@ -1112,8 +1299,13 @@ def create_dashboard():
                                         className="me-2 p-2"
                                     ),
                                     dbc.Badge(
-                                        ["품질관리 ", html.I(className="fas fa-check")],  # V1.1 추가
+                                        ["품질관리 ", html.I(className="fas fa-check")],
                                         color="success" if config['modules'].get('quality', False) else "secondary",
+                                        className="me-2 p-2"
+                                    ),
+                                    dbc.Badge(
+                                        ["인사관리 ", html.I(className="fas fa-check")],  # V1.2 추가
+                                        color="success" if config['modules'].get('hr', False) else "secondary",
                                         className="me-2 p-2"
                                     ),
                                     dbc.Badge(
@@ -1152,6 +1344,31 @@ def create_dashboard():
                     ])
                 ])
             ], lg=6)
+        ], className="mb-4"),
+        
+        # API 정보 카드 (V1.2)
+        dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H5([html.I(className="fas fa-code me-2"), "API 정보"]),
+                        html.Hr(),
+                        html.P([
+                            "REST API 엔드포인트: ",
+                            html.Code(f"http://localhost:{config.get('api', {}).get('port', 5001)}")
+                        ]),
+                        html.P([
+                            "API 문서: ",
+                            html.A(
+                                f"http://localhost:{config.get('api', {}).get('port', 5001)}/apidocs",
+                                href=f"http://localhost:{config.get('api', {}).get('port', 5001)}/apidocs",
+                                target="_blank"
+                            )
+                        ]),
+                        html.P("인증 방식: JWT Bearer Token", className="mb-0")
+                    ])
+                ])
+            ], lg=12) if config.get('api', {}).get('enabled', False) else html.Div()
         ], className="mb-4"),
         
         # 디버깅 콘솔 (숨김 상태)
@@ -1220,13 +1437,20 @@ def display_page(pathname, session_data):
         except ImportError as e:
             logger.error(f"영업관리 모듈 로드 실패: {e}")
             return error_layout("영업관리", e)
-    elif pathname == '/quality':  # V1.1 품질관리 라우팅 추가
+    elif pathname == '/quality':
         try:
             from modules.quality.layouts import create_quality_layout
             return create_quality_layout()
         except ImportError as e:
             logger.error(f"품질관리 모듈 로드 실패: {e}")
             return error_layout("품질관리", e)
+    elif pathname == '/hr':  # V1.2 인사관리 라우팅 추가
+        try:
+            from modules.hr.layouts import create_hr_layout
+            return create_hr_layout()
+        except ImportError as e:
+            logger.error(f"인사관리 모듈 로드 실패: {e}")
+            return error_layout("인사관리", e)
     elif pathname == '/accounting':
         try:
             from modules.accounting.layouts import create_accounting_layout
@@ -1354,7 +1578,7 @@ def create_settings_page():
                                     ], width=4)
                                 ])
                             ]),
-                            dbc.ListGroupItem([  # V1.1 품질관리 추가
+                            dbc.ListGroupItem([
                                 dbc.Row([
                                     dbc.Col([
                                         html.H5("품질관리", className="mb-0"),
@@ -1364,6 +1588,21 @@ def create_settings_page():
                                         dbc.Switch(
                                             id="module-quality-switch",
                                             value=config['modules'].get('quality', False),
+                                            className="float-end"
+                                        )
+                                    ], width=4)
+                                ])
+                            ]),
+                            dbc.ListGroupItem([  # V1.2 인사관리 추가
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.H5("인사관리", className="mb-0"),
+                                        html.Small("직원, 근태, 급여, 휴가 관리", className="text-muted")
+                                    ], width=8),
+                                    dbc.Col([
+                                        dbc.Switch(
+                                            id="module-hr-switch",
+                                            value=config['modules'].get('hr', False),
                                             className="float-end"
                                         )
                                     ], width=4)
@@ -1420,7 +1659,46 @@ def create_settings_page():
                             ])
                         ])
                     ])
-                ])
+                ]),
+                dbc.Card([  # V1.2 API 설정 추가
+                    dbc.CardHeader([
+                        html.H4([html.I(className="fas fa-plug me-2"), "API 설정"])
+                    ]),
+                    dbc.CardBody([
+                        dbc.Form([
+                            dbc.Row([
+                                dbc.Col([
+                                    dbc.Label("REST API 활성화"),
+                                    dbc.Switch(
+                                        id="api-enabled-switch",
+                                        value=config.get('api', {}).get('enabled', False),
+                                        className="mb-3"
+                                    )
+                                ])
+                            ]),
+                            dbc.Row([
+                                dbc.Col([
+                                    dbc.Label("API 포트"),
+                                    dbc.Input(
+                                        id="api-port",
+                                        type="number",
+                                        value=config.get('api', {}).get('port', 5001),
+                                        min=1024,
+                                        max=65535
+                                    )
+                                ], md=6),
+                                dbc.Col([
+                                    dbc.Label("Rate Limit"),
+                                    dbc.Input(
+                                        id="api-rate-limit",
+                                        type="text",
+                                        value=config.get('api', {}).get('rate_limit', '100 per hour')
+                                    )
+                                ], md=6)
+                            ])
+                        ])
+                    ])
+                ], className="mt-3")
             ], lg=6)
         ], className="mb-4"),
         
@@ -1504,10 +1782,11 @@ def handle_login(login_clicks, guest_clicks, username, password):
         if not username or not password:
             return dash.no_update, dbc.Alert("사용자 ID와 비밀번호를 입력하세요.", color="warning"), dash.no_update
         
-        # 데이터베이스에서 사용자 확인
+        # 데이터베이스에서 사용자 확인 (V1.2: 비밀번호 해시 비교)
         conn = sqlite3.connect('data/database.db')
         cursor = conn.cursor()
-        cursor.execute("SELECT id, role FROM users WHERE username = ? AND password = ?", (username, password))
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        cursor.execute("SELECT id, role FROM users WHERE username = ? AND password = ?", (username, password_hash))
         user = cursor.fetchone()
         conn.close()
         
@@ -1600,7 +1879,7 @@ def update_dashboard(n):
     except:
         pass  # 테이블이 없을 경우 무시
     
-    # V1.1 품질관리 알림 추가
+    # V1.1 품질관리 알림
     try:
         # 교정 예정 장비 알림
         cursor.execute("""
@@ -1634,6 +1913,43 @@ def update_dashboard(n):
                     html.I(className="fas fa-exclamation-circle me-2"),
                     f"{critical_defects}건의 중대 불량이 처리 중입니다."
                 ], color="danger", className="mb-2")
+            )
+    except:
+        pass  # 테이블이 없을 경우 무시
+    
+    # V1.2 인사관리 알림
+    try:
+        # 미승인 휴가 신청
+        cursor.execute("""
+            SELECT COUNT(*) FROM leave_requests 
+            WHERE status = 'pending'
+        """)
+        pending_leaves = cursor.fetchone()[0]
+        
+        if pending_leaves > 0:
+            alerts.append(
+                dbc.Alert([
+                    html.I(className="fas fa-calendar-alt me-2"),
+                    f"{pending_leaves}건의 휴가 신청이 승인 대기 중입니다."
+                ], color="info", className="mb-2")
+            )
+        
+        # 오늘 출근하지 않은 직원
+        cursor.execute("""
+            SELECT COUNT(*) FROM employees e
+            WHERE e.work_status = 'active'
+            AND e.emp_id NOT IN (
+                SELECT emp_id FROM attendance WHERE work_date = ?
+            )
+        """, (today,))
+        absent_employees = cursor.fetchone()[0]
+        
+        if absent_employees > 0 and datetime.now().hour > 10:  # 오전 10시 이후
+            alerts.append(
+                dbc.Alert([
+                    html.I(className="fas fa-user-clock me-2"),
+                    f"{absent_employees}명의 직원이 아직 출근하지 않았습니다."
+                ], color="warning", className="mb-2")
             )
     except:
         pass  # 테이블이 없을 경우 무시
@@ -1686,17 +2002,22 @@ def toggle_debug_console(n_clicks, current_style):
      State('module-inventory-switch', 'value'),
      State('module-purchase-switch', 'value'),
      State('module-sales-switch', 'value'),
-     State('module-quality-switch', 'value'),       # V1.1 추가
+     State('module-quality-switch', 'value'),
+     State('module-hr-switch', 'value'),  # V1.2 추가
      State('module-accounting-switch', 'value'),
      State('auth-enabled-switch', 'value'),
      State('session-timeout', 'value'),
+     State('api-enabled-switch', 'value'),  # V1.2 추가
+     State('api-port', 'value'),  # V1.2 추가
+     State('api-rate-limit', 'value'),  # V1.2 추가
      State('update-interval', 'value'),
      State('language-select', 'value')],
     prevent_initial_call=True
 )
 def save_settings(n_clicks, mes_enabled, inventory_enabled, purchase_enabled,
-                 sales_enabled, quality_enabled, accounting_enabled, 
-                 auth_enabled, session_timeout, update_interval, language):
+                 sales_enabled, quality_enabled, hr_enabled, accounting_enabled, 
+                 auth_enabled, session_timeout, api_enabled, api_port, api_rate_limit,
+                 update_interval, language):
     """시스템 설정 저장"""
     global config
     
@@ -1704,10 +2025,14 @@ def save_settings(n_clicks, mes_enabled, inventory_enabled, purchase_enabled,
     config['modules']['inventory'] = inventory_enabled
     config['modules']['purchase'] = purchase_enabled
     config['modules']['sales'] = sales_enabled
-    config['modules']['quality'] = quality_enabled      # V1.1 추가
+    config['modules']['quality'] = quality_enabled
+    config['modules']['hr'] = hr_enabled  # V1.2 추가
     config['modules']['accounting'] = accounting_enabled
     config['authentication']['enabled'] = auth_enabled
     config['authentication']['session_timeout'] = session_timeout
+    config['api']['enabled'] = api_enabled  # V1.2 추가
+    config['api']['port'] = api_port  # V1.2 추가
+    config['api']['rate_limit'] = api_rate_limit  # V1.2 추가
     config['system']['update_interval'] = update_interval * 1000
     config['system']['language'] = language
     
@@ -1757,6 +2082,13 @@ try:
 except ImportError:
     logger.warning("품질관리 모듈 콜백을 불러올 수 없습니다.")
 
+# 인사관리 모듈 콜백 등록 (V1.2 추가)
+try:
+    from modules.hr.callbacks import register_hr_callbacks
+    register_hr_callbacks(app)
+except ImportError:
+    logger.warning("인사관리 모듈 콜백을 불러올 수 없습니다.")
+
 # 회계관리 모듈 콜백 등록
 try:
     from modules.accounting.callbacks import register_accounting_callbacks
@@ -1772,6 +2104,28 @@ if __name__ == '__main__':
     
     # 데이터베이스 초기화
     init_database()
+    
+    # V1.2: API 서버 실행 (별도 스레드)
+    if config.get('api', {}).get('enabled', False):
+        def run_api():
+            try:
+                from api import create_api_app
+                api_app, api = create_api_app(config)
+                api_port = config['api'].get('port', 5001)
+                logger.info(f"REST API 서버 시작: http://localhost:{api_port}")
+                logger.info(f"API 문서: http://localhost:{api_port}/apidocs")
+                api_app.run(
+                    host=config['api'].get('host', '0.0.0.0'),
+                    port=api_port,
+                    debug=False,
+                    use_reloader=False
+                )
+            except Exception as e:
+                logger.error(f"API 서버 시작 실패: {e}")
+        
+        api_thread = threading.Thread(target=run_api)
+        api_thread.daemon = True
+        api_thread.start()
     
     # 앱 실행
     logger.info(f"{config['system']['name']} V{config['system']['version']} 시작")
