@@ -714,7 +714,7 @@ def register_quality_callbacks(app):
                 
                 # 80% 기준선
                 fig.add_hline(y=80, line_dash="dash", line_color="green",
-                            annotation_text="80%", yaxis='y2')
+                            annotation_text="80%", yref='y2')
                 
                 fig.update_layout(
                     title="불량 유형별 파레토 차트",
@@ -1054,7 +1054,7 @@ def register_quality_callbacks(app):
         
         # 목표선
         fig.add_hline(y=98, line_dash="dash", line_color="green",
-                     annotation_text="목표: 98%", yaxis='y')
+                     annotation_text="목표: 98%")
         
         fig.update_layout(
             title="공급업체별 품질 현황",
