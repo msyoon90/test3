@@ -1,26 +1,38 @@
-
-# Smart MES-ERP System Configuration
+# Smart MES-ERP System Configuration V1.2
 # 시스템 설정 파일
 
 # 시스템 기본 설정
 system:
   name: Smart MES-ERP
+  version: "1.2.0"
   language: ko
   update_interval: 2000  # 실시간 업데이트 주기 (밀리초)
 
 # 모듈 활성화 설정
 modules:
-  mes: true          # MES (생산관리) - 활성화(V0.1 신규)
-  inventory: true    # 재고관리 - 활성화 (V0.2 신규)
-  purchase: true     # 구매관리 - 활성화 (V0.5 신규)
-  sales: true       # 영업관리 -  활성화 (V0.9 신규)
-  accounting: true   # 회계관리 - 활성화 (V0.7 신규)
-  quality: true      # 품질관리 - 활성화 (v1.1 신규)
+  mes: true          # MES (생산관리)
+  inventory: true    # 재고관리
+  purchase: true     # 구매관리
+  sales: true        # 영업관리
+  accounting: true   # 회계관리
+  quality: true      # 품질관리
+  hr: true          # 인사관리 (V1.2 신규)
 
 # 인증 설정
 authentication:
   enabled: true           # 로그인 기능 사용 여부
   session_timeout: 30     # 세션 타임아웃 (분)
+  jwt_secret_key: "your-secret-key-change-in-production"  # V1.2 JWT 키
+  jwt_access_token_expires: 3600  # JWT 토큰 만료 시간 (초)
+
+# API 설정 (V1.2 신규)
+api:
+  enabled: true
+  host: "0.0.0.0"
+  port: 5001
+  cors_origins: ["http://localhost:8050", "http://localhost:3000"]
+  rate_limit: "100 per hour"
+  documentation: true  # Swagger 문서 활성화
 
 # 데이터베이스 설정
 database:
@@ -37,3 +49,26 @@ backup:
   interval: daily         # 백업 주기 (daily, weekly, monthly)
   path: backups/          # 백업 파일 저장 경로
   retention: 30           # 백업 보관 기간 (일)
+
+# 인사관리 설정 (V1.2 신규)
+hr:
+  work_hours:
+    start: "09:00"
+    end: "18:00"
+    break_time: 60  # 점심시간 (분)
+  overtime:
+    weekday_rate: 1.5
+    weekend_rate: 2.0
+    holiday_rate: 2.5
+  leave:
+    annual_days: 15  # 연차 기본 일수
+    sick_leave_days: 10
+    special_leave_days: 5
+  payroll:
+    pay_day: 25  # 급여일
+    tax_rate: 0.033  # 소득세율
+    insurance_rates:
+      health: 0.0343  # 건강보험
+      pension: 0.045  # 국민연금
+      employment: 0.008  # 고용보험
+      accident: 0.007  # 산재보험
