@@ -434,6 +434,196 @@ def init_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # app.py 파일에서 찾아야 할 부분 (약 459번째 줄):
+
+    # 고정자산 마스터
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS fixed_asset (
+            asset_code TEXT PRIMARY KEY,
+            asset_name TEXT NOT NULL,
+            asset_type TEXT,
+            acquisition_date DATE NOT NULL,
+            acquisition_cost REAL DEFAULT 0,
+            depreciation_method TEXT DEFAULT 'straight',
+            useful_life INTEGER DEFAULT 5,
+            salvage_value REAL DEFAULT 0,
+            accumulated_depreciation REAL DEFAULT 0,
+            book_value REAL DEFAULT 0,
+            disposal_date DATE,
+            disposal_amount REAL DEFAULT 0,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # === V1.1 품질관리 테이블 === (여기부터 추가)
+    
+    # 입고검사 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS incoming_inspection (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inspection_no TEXT UNIQUE NOT NULL,
+            inspection_date DATE NOT NULL,
+            po_number TEXT,
+            item_code TEXT NOT NULL,
+            lot_number TEXT,
+            received_qty INTEGER NOT NULL,
+            sample_qty INTEGER NOT NULL,
+            passed_qty INTEGER NOT NULL,
+            failed_qty INTEGER DEFAULT 0,
+            inspection_result TEXT NOT NULL,
+            defect_codes TEXT,
+            inspector_id INTEGER,
+            remarks TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (item_code) REFERENCES item_master (item_code),
+            FOREIGN KEY (inspector_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # 공정검사 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS process_inspection (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inspection_no TEXT UNIQUE NOT NULL,
+            inspection_date DATE NOT NULL,
+            work_order_no TEXT,
+            process_code TEXT,
+            item_code TEXT NOT NULL,
+            lot_number TEXT,
+            production_qty INTEGER NOT NULL,
+            sample_qty INTEGER NOT NULL,
+            passed_qty INTEGER NOT NULL,
+            failed_qty INTEGER DEFAULT 0,
+            inspection_result TEXT NOT NULL,
+            defect_codes TEXT,
+            inspector_id INTEGER,
+            remarks TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (item_code) REFERENCES item_master (item_code),
+            FOREIGN KEY (inspector_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # 출하검사 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS final_inspection (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inspection_no TEXT UNIQUE NOT NULL,
+            inspection_date DATE NOT NULL,
+            order_number TEXT,
+            product_code TEXT NOT NULL,
+            lot_number TEXT,
+            inspection_qty INTEGER NOT NULL,
+            sample_qty INTEGER NOT NULL,
+            passed_qty INTEGER NOT NULL,
+            failed_qty INTEGER DEFAULT 0,
+            inspection_result TEXT NOT NULL,
+            defect_codes TEXT,
+            inspector_id INTEGER,
+            certificate_no TEXT,
+            remarks TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (inspector_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # 불량유형 마스터
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS defect_types (
+            defect_code TEXT PRIMARY KEY,
+            defect_name TEXT NOT NULL,
+            defect_category TEXT,
+            severity_level INTEGER DEFAULT 3,
+            description TEXT,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # 불량이력 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS defect_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            defect_date DATE NOT NULL,
+            inspection_no TEXT,
+            defect_code TEXT NOT NULL,
+            item_code TEXT,
+            defect_qty INTEGER NOT NULL,
+            defect_location TEXT,
+            cause_analysis TEXT,
+            corrective_action TEXT,
+            prevention_action TEXT,
+            responsible_person TEXT,
+            status TEXT DEFAULT 'open',
+            closed_date DATE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (defect_code) REFERENCES defect_types (defect_code)
+        )
+    ''')
+    
+    # 측정장비 마스터
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS measurement_equipment (
+            equipment_id TEXT PRIMARY KEY,
+            equipment_name TEXT NOT NULL,
+            equipment_type TEXT,
+            manufacturer TEXT,
+            model_no TEXT,
+            serial_no TEXT,
+            calibration_cycle INTEGER DEFAULT 365,
+            last_calibration_date DATE,
+            next_calibration_date DATE,
+            calibration_certificate_no TEXT,
+            location TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # SPC 데이터 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS spc_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            measurement_date TIMESTAMP NOT NULL,
+            process_code TEXT NOT NULL,
+            item_code TEXT NOT NULL,
+            characteristic TEXT NOT NULL,
+            measurement_value REAL NOT NULL,
+            sample_no INTEGER,
+            subgroup_no INTEGER,
+            usl REAL,
+            lsl REAL,
+            target REAL,
+            operator_id INTEGER,
+            equipment_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (operator_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # 품질 성적서 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS quality_certificates (
+            certificate_no TEXT PRIMARY KEY,
+            issue_date DATE NOT NULL,
+            customer_code TEXT,
+            order_number TEXT,
+            product_code TEXT NOT NULL,
+            lot_number TEXT,
+            test_items TEXT,
+            test_results TEXT,
+            overall_result TEXT NOT NULL,
+            issued_by INTEGER,
+            approved_by INTEGER,
+            file_path TEXT,
+            status TEXT DEFAULT 'draft',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (issued_by) REFERENCES users (id),
+            FOREIGN KEY (approved_by) REFERENCES users (id)
+        )
+    ''')
     
     # === V1.0 영업관리 테이블 ===
     
