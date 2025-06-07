@@ -1,283 +1,356 @@
 # File: scripts/create_quality_tables.py
-# 품질관리 모듈 테이블 생성 스크립트
+# 품질관리 모듈 테이블 생성 스크립트 - V1.1
 
 import sqlite3
 import os
+import logging
+from datetime import datetime, timedelta
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def create_quality_tables():
     """품질관리 관련 테이블 생성"""
-    # data 폴더가 없으면 생성
-    os.makedirs('data', exist_ok=True)
     
-    conn = sqlite3.connect('data/database.db')
+    # 데이터베이스 경로
+    db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'database.db')
+    
+    # 데이터 디렉토리가 없으면 생성
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    print("품질관리 테이블 생성 중...")
+    try:
+        # 1. 입고검사 테이블
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS incoming_inspection (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                inspection_no TEXT UNIQUE NOT NULL,
+                inspection_date DATE NOT NULL,
+                po_number TEXT,
+                item_code TEXT NOT NULL,
+                lot_number TEXT,
+                received_qty INTEGER NOT NULL,
+                sample_qty INTEGER NOT NULL,
+                passed_qty INTEGER NOT NULL,
+                failed_qty INTEGER DEFAULT 0,
+                inspection_result TEXT NOT NULL,  -- pass, fail, conditional
+                defect_codes TEXT,
+                inspector_id INTEGER,
+                remarks TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (item_code) REFERENCES item_master (item_code),
+                FOREIGN KEY (inspector_id) REFERENCES users (id)
+            )
+        ''')
+        logger.info("✓ incoming_inspection 테이블 생성 완료")
+        
+        # 2. 공정검사 테이블
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS process_inspection (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                inspection_no TEXT UNIQUE NOT NULL,
+                inspection_date DATE NOT NULL,
+                work_order_no TEXT,
+                process_code TEXT,
+                item_code TEXT NOT NULL,
+                lot_number TEXT,
+                production_qty INTEGER NOT NULL,
+                sample_qty INTEGER NOT NULL,
+                passed_qty INTEGER NOT NULL,
+                failed_qty INTEGER DEFAULT 0,
+                inspection_result TEXT NOT NULL,
+                defect_codes TEXT,
+                inspector_id INTEGER,
+                remarks TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (item_code) REFERENCES item_master (item_code),
+                FOREIGN KEY (inspector_id) REFERENCES users (id)
+            )
+        ''')
+        logger.info("✓ process_inspection 테이블 생성 완료")
+        
+        # 3. 출하검사 테이블
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS final_inspection (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                inspection_no TEXT UNIQUE NOT NULL,
+                inspection_date DATE NOT NULL,
+                order_number TEXT,
+                product_code TEXT NOT NULL,
+                lot_number TEXT,
+                inspection_qty INTEGER NOT NULL,
+                sample_qty INTEGER NOT NULL,
+                passed_qty INTEGER NOT NULL,
+                failed_qty INTEGER DEFAULT 0,
+                inspection_result TEXT NOT NULL,
+                defect_codes TEXT,
+                inspector_id INTEGER,
+                certificate_no TEXT,
+                remarks TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (inspector_id) REFERENCES users (id)
+            )
+        ''')
+        logger.info("✓ final_inspection 테이블 생성 완료")
+        
+        # 4. 불량유형 마스터
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS defect_types (
+                defect_code TEXT PRIMARY KEY,
+                defect_name TEXT NOT NULL,
+                defect_category TEXT,  -- appearance, dimension, function, material
+                severity_level INTEGER DEFAULT 3,  -- 1: Critical, 2: Major, 3: Minor
+                description TEXT,
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        logger.info("✓ defect_types 테이블 생성 완료")
+        
+        # 5. 불량이력 테이블
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS defect_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                defect_date DATE NOT NULL,
+                inspection_no TEXT,
+                defect_code TEXT NOT NULL,
+                item_code TEXT,
+                defect_qty INTEGER NOT NULL,
+                defect_location TEXT,
+                cause_analysis TEXT,
+                corrective_action TEXT,
+                prevention_action TEXT,
+                responsible_person TEXT,
+                status TEXT DEFAULT 'open',  -- open, in_progress, closed
+                closed_date DATE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (defect_code) REFERENCES defect_types (defect_code)
+            )
+        ''')
+        logger.info("✓ defect_history 테이블 생성 완료")
+        
+        # 6. SPC 데이터 테이블
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS spc_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                measurement_date TIMESTAMP NOT NULL,
+                process_code TEXT NOT NULL,
+                item_code TEXT NOT NULL,
+                characteristic TEXT NOT NULL,  -- length, width, thickness, weight, etc.
+                measurement_value REAL NOT NULL,
+                sample_no INTEGER,
+                subgroup_no INTEGER,
+                usl REAL,  -- Upper Specification Limit
+                lsl REAL,  -- Lower Specification Limit
+                target REAL,
+                operator_id INTEGER,
+                equipment_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (operator_id) REFERENCES users (id)
+            )
+        ''')
+        logger.info("✓ spc_data 테이블 생성 완료")
+        
+        # 7. 품질 성적서 테이블
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS quality_certificates (
+                certificate_no TEXT PRIMARY KEY,
+                issue_date DATE NOT NULL,
+                customer_code TEXT,
+                order_number TEXT,
+                product_code TEXT NOT NULL,
+                lot_number TEXT,
+                test_items TEXT,  -- JSON format
+                test_results TEXT,  -- JSON format
+                overall_result TEXT NOT NULL,  -- pass, fail
+                issued_by INTEGER,
+                approved_by INTEGER,
+                file_path TEXT,
+                status TEXT DEFAULT 'draft',  -- draft, issued, cancelled
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (issued_by) REFERENCES users (id),
+                FOREIGN KEY (approved_by) REFERENCES users (id)
+            )
+        ''')
+        logger.info("✓ quality_certificates 테이블 생성 완료")
+        
+        # 8. 측정장비 마스터
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS measurement_equipment (
+                equipment_id TEXT PRIMARY KEY,
+                equipment_name TEXT NOT NULL,
+                equipment_type TEXT,
+                manufacturer TEXT,
+                model_no TEXT,
+                serial_no TEXT,
+                calibration_cycle INTEGER DEFAULT 365,  -- days
+                last_calibration_date DATE,
+                next_calibration_date DATE,
+                calibration_certificate_no TEXT,
+                location TEXT,
+                status TEXT DEFAULT 'active',  -- active, calibrating, repair, retired
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        logger.info("✓ measurement_equipment 테이블 생성 완료")
+        
+        # 9. 검사기준 마스터
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS inspection_standards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_code TEXT NOT NULL,
+                inspection_type TEXT NOT NULL,  -- incoming, process, final
+                inspection_item TEXT NOT NULL,
+                inspection_method TEXT,
+                standard_value TEXT,
+                tolerance_upper REAL,
+                tolerance_lower REAL,
+                sampling_plan TEXT,
+                aql REAL,  -- Acceptable Quality Level
+                is_critical BOOLEAN DEFAULT 0,
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (item_code) REFERENCES item_master (item_code)
+            )
+        ''')
+        logger.info("✓ inspection_standards 테이블 생성 완료")
+        
+        # 10. 품질 비용 테이블
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS quality_costs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cost_date DATE NOT NULL,
+                cost_category TEXT NOT NULL,  -- prevention, appraisal, internal_failure, external_failure
+                cost_item TEXT NOT NULL,
+                amount REAL NOT NULL,
+                department TEXT,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        logger.info("✓ quality_costs 테이블 생성 완료")
+        
+        # 기본 불량유형 데이터 삽입
+        cursor.execute("SELECT COUNT(*) FROM defect_types")
+        if cursor.fetchone()[0] == 0:
+            defect_types = [
+                ('DEF001', '외관불량', 'appearance', 3, '제품 외관상의 결함'),
+                ('DEF002', '치수불량', 'dimension', 2, '규격 치수 벗어남'),
+                ('DEF003', '기능불량', 'function', 1, '제품 기능 이상'),
+                ('DEF004', '재료불량', 'material', 2, '원재료 품질 불량'),
+                ('DEF005', '포장불량', 'appearance', 3, '포장 상태 불량'),
+                ('DEF006', '라벨불량', 'appearance', 3, '라벨 인쇄 또는 부착 불량'),
+                ('DEF007', '조립불량', 'function', 2, '부품 조립 상태 불량'),
+                ('DEF008', '도장불량', 'appearance', 3, '도장 상태 불량'),
+                ('DEF009', '용접불량', 'function', 1, '용접 품질 불량'),
+                ('DEF010', '전기불량', 'function', 1, '전기적 특성 불량')
+            ]
+            cursor.executemany(
+                "INSERT INTO defect_types (defect_code, defect_name, defect_category, severity_level, description) VALUES (?, ?, ?, ?, ?)",
+                defect_types
+            )
+            logger.info("✓ 기본 불량유형 데이터 삽입 완료")
+        
+        # 샘플 측정장비 데이터 삽입
+        cursor.execute("SELECT COUNT(*) FROM measurement_equipment")
+        if cursor.fetchone()[0] == 0:
+            equipment = [
+                ('EQ001', '버니어 캘리퍼스', 'dimension', 'Mitutoyo', 'CD-15CPX', 'SN12345', 365, 
+                 '2024-01-15', '2025-01-15', 'CERT-2024-001', '품질관리실', 'active'),
+                ('EQ002', '마이크로미터', 'dimension', 'Mitutoyo', 'MDC-25PX', 'SN23456', 365,
+                 '2024-02-20', '2025-02-20', 'CERT-2024-002', '품질관리실', 'active'),
+                ('EQ003', '하이트 게이지', 'dimension', 'Mitutoyo', 'HDS-20C', 'SN34567', 365,
+                 '2024-03-10', '2025-03-10', 'CERT-2024-003', '품질관리실', 'active'),
+                ('EQ004', '경도계', 'material', 'Mitutoyo', 'HR-320MS', 'SN45678', 730,
+                 '2023-12-01', '2025-12-01', 'CERT-2023-004', '시험실', 'active'),
+                ('EQ005', '전자저울', 'weight', 'AND', 'GX-6000', 'SN56789', 365,
+                 '2024-04-05', '2025-04-05', 'CERT-2024-005', '품질관리실', 'active')
+            ]
+            cursor.executemany(
+                """INSERT INTO measurement_equipment 
+                   (equipment_id, equipment_name, equipment_type, manufacturer, model_no, 
+                    serial_no, calibration_cycle, last_calibration_date, next_calibration_date,
+                    calibration_certificate_no, location, status) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                equipment
+            )
+            logger.info("✓ 샘플 측정장비 데이터 삽입 완료")
+        
+        conn.commit()
+        logger.info("\n✅ 품질관리 테이블 생성 완료!")
+        
+    except Exception as e:
+        logger.error(f"❌ 테이블 생성 중 오류 발생: {e}")
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+def add_sample_quality_data():
+    """샘플 품질 데이터 추가"""
+    db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'database.db')
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
     
-    # 1. 검사 기준 마스터
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS inspection_standards (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_code TEXT NOT NULL,
-            inspection_type TEXT NOT NULL,  -- incoming, process, final
-            inspection_item TEXT NOT NULL,
-            standard_value TEXT,
-            upper_limit REAL,
-            lower_limit REAL,
-            unit TEXT,
-            inspection_method TEXT,
-            sampling_rate REAL DEFAULT 100,  -- 검사 비율 (%)
-            is_critical BOOLEAN DEFAULT 0,   -- 중요 검사 항목
-            is_active BOOLEAN DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (item_code) REFERENCES item_master (item_code)
-        )
-    ''')
-    print("  ✅ inspection_standards 테이블 생성")
-    
-    # 2. 입고 검사
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS incoming_inspection (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            inspection_no TEXT UNIQUE NOT NULL,
-            inspection_date DATE NOT NULL,
-            po_number TEXT NOT NULL,
-            item_code TEXT NOT NULL,
-            lot_number TEXT,
-            received_qty INTEGER NOT NULL,
-            sample_qty INTEGER NOT NULL,
-            passed_qty INTEGER NOT NULL,
-            failed_qty INTEGER DEFAULT 0,
-            inspection_result TEXT NOT NULL,  -- pass, fail, conditional
-            defect_type TEXT,
-            defect_description TEXT,
-            inspector_id INTEGER,
-            approval_status TEXT DEFAULT 'pending',  -- pending, approved, rejected
-            approved_by INTEGER,
-            approved_date TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (po_number) REFERENCES purchase_orders (po_number),
-            FOREIGN KEY (item_code) REFERENCES item_master (item_code),
-            FOREIGN KEY (inspector_id) REFERENCES users (id),
-            FOREIGN KEY (approved_by) REFERENCES users (id)
-        )
-    ''')
-    print("  ✅ incoming_inspection 테이블 생성")
-    
-    # 3. 공정 검사
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS process_inspection (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            inspection_no TEXT UNIQUE NOT NULL,
-            inspection_date DATE NOT NULL,
-            work_order_no TEXT,
-            process_name TEXT NOT NULL,
-            item_code TEXT NOT NULL,
-            lot_number TEXT,
-            production_qty INTEGER NOT NULL,
-            sample_qty INTEGER NOT NULL,
-            passed_qty INTEGER NOT NULL,
-            failed_qty INTEGER DEFAULT 0,
-            inspection_result TEXT NOT NULL,  -- pass, fail, rework
-            measurement_data TEXT,  -- JSON 형태로 측정값 저장
-            spc_data TEXT,         -- SPC 차트 데이터
-            inspector_id INTEGER,
-            remarks TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (item_code) REFERENCES item_master (item_code),
-            FOREIGN KEY (inspector_id) REFERENCES users (id)
-        )
-    ''')
-    print("  ✅ process_inspection 테이블 생성")
-    
-    # 4. 출하 검사
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS final_inspection (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            inspection_no TEXT UNIQUE NOT NULL,
-            inspection_date DATE NOT NULL,
-            order_number TEXT,
-            product_code TEXT NOT NULL,
-            lot_number TEXT,
-            production_date DATE,
-            inspection_qty INTEGER NOT NULL,
-            sample_qty INTEGER NOT NULL,
-            passed_qty INTEGER NOT NULL,
-            failed_qty INTEGER DEFAULT 0,
-            inspection_result TEXT NOT NULL,  -- pass, fail, hold
-            certificate_no TEXT,  -- 성적서 번호
-            inspector_id INTEGER,
-            qa_manager_id INTEGER,
-            approved_date TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (order_number) REFERENCES sales_orders (order_number),
-            FOREIGN KEY (inspector_id) REFERENCES users (id),
-            FOREIGN KEY (qa_manager_id) REFERENCES users (id)
-        )
-    ''')
-    print("  ✅ final_inspection 테이블 생성")
-    
-    # 5. 불량 유형 마스터
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS defect_types (
-            defect_code TEXT PRIMARY KEY,
-            defect_name TEXT NOT NULL,
-            defect_category TEXT,  -- appearance, dimension, function, material
-            severity_level INTEGER DEFAULT 3,  -- 1: Critical, 2: Major, 3: Minor
-            description TEXT,
-            corrective_action TEXT,
-            is_active BOOLEAN DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    print("  ✅ defect_types 테이블 생성")
-    
-    # 6. 불량 이력
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS defect_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            inspection_type TEXT NOT NULL,  -- incoming, process, final
-            inspection_no TEXT NOT NULL,
-            defect_date DATE NOT NULL,
-            item_code TEXT NOT NULL,
-            defect_code TEXT NOT NULL,
-            defect_qty INTEGER NOT NULL,
-            defect_rate REAL,
-            cause_analysis TEXT,
-            corrective_action TEXT,
-            preventive_action TEXT,
-            responsible_dept TEXT,
-            status TEXT DEFAULT 'open',  -- open, in_progress, closed
-            closed_date DATE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (item_code) REFERENCES item_master (item_code),
-            FOREIGN KEY (defect_code) REFERENCES defect_types (defect_code)
-        )
-    ''')
-    print("  ✅ defect_history 테이블 생성")
-    
-    # 7. SPC (통계적 공정 관리) 데이터
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS spc_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            measurement_date DATE NOT NULL,
-            process_name TEXT NOT NULL,
-            item_code TEXT NOT NULL,
-            characteristic TEXT NOT NULL,  -- 측정 특성
-            sample_no INTEGER NOT NULL,
-            measurement_value REAL NOT NULL,
-            ucl REAL,  -- Upper Control Limit
-            lcl REAL,  -- Lower Control Limit
-            cl REAL,   -- Center Line
-            usl REAL,  -- Upper Spec Limit
-            lsl REAL,  -- Lower Spec Limit
-            cp REAL,   -- Process Capability
-            cpk REAL,  -- Process Capability Index
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (item_code) REFERENCES item_master (item_code)
-        )
-    ''')
-    print("  ✅ spc_data 테이블 생성")
-    
-    # 8. 품질 성적서
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS quality_certificates (
-            certificate_no TEXT PRIMARY KEY,
-            issue_date DATE NOT NULL,
-            customer_code TEXT NOT NULL,
-            order_number TEXT,
-            product_code TEXT NOT NULL,
-            lot_number TEXT NOT NULL,
-            production_date DATE,
-            inspection_date DATE,
-            test_items TEXT,  -- JSON 형태로 시험 항목 및 결과 저장
-            overall_result TEXT NOT NULL,  -- pass, fail
-            issuer_id INTEGER,
-            qa_manager_id INTEGER,
-            remarks TEXT,
-            is_sent BOOLEAN DEFAULT 0,
-            sent_date TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (customer_code) REFERENCES customers (customer_code),
-            FOREIGN KEY (order_number) REFERENCES sales_orders (order_number),
-            FOREIGN KEY (issuer_id) REFERENCES users (id),
-            FOREIGN KEY (qa_manager_id) REFERENCES users (id)
-        )
-    ''')
-    print("  ✅ quality_certificates 테이블 생성")
-    
-    # 9. 측정 장비 관리
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS measurement_equipment (
-            equipment_id TEXT PRIMARY KEY,
-            equipment_name TEXT NOT NULL,
-            equipment_type TEXT,
-            manufacturer TEXT,
-            model_no TEXT,
-            serial_no TEXT,
-            calibration_date DATE,
-            next_calibration_date DATE,
-            calibration_cycle INTEGER DEFAULT 365,  -- 교정 주기 (일)
-            location TEXT,
-            status TEXT DEFAULT 'active',  -- active, calibrating, repair, inactive
-            responsible_person INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (responsible_person) REFERENCES users (id)
-        )
-    ''')
-    print("  ✅ measurement_equipment 테이블 생성")
-    
-    # 10. 품질 목표 및 KPI
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS quality_kpi (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            kpi_year INTEGER NOT NULL,
-            kpi_month INTEGER,
-            kpi_type TEXT NOT NULL,  -- defect_rate, customer_complaint, process_capability
-            target_value REAL NOT NULL,
-            actual_value REAL DEFAULT 0,
-            achievement_rate REAL DEFAULT 0,
-            department TEXT,
-            notes TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    print("  ✅ quality_kpi 테이블 생성")
-    
-    # 샘플 불량 유형 데이터 추가
-    cursor.execute("SELECT COUNT(*) FROM defect_types")
-    if cursor.fetchone()[0] == 0:
-        sample_defects = [
-            ('D001', '치수 불량', 'dimension', 2, '규격 치수 벗어남', '재가공 또는 폐기'),
-            ('D002', '외관 불량', 'appearance', 3, '스크래치, 찍힘, 변색', '재작업 가능시 보수'),
-            ('D003', '기능 불량', 'function', 1, '작동 불량, 성능 미달', '원인 분석 후 재제작'),
-            ('D004', '재료 불량', 'material', 2, '재질 불량, 이물질 혼입', '재료 교체 및 재생산'),
-            ('D005', '포장 불량', 'appearance', 3, '포장 파손, 라벨 오류', '재포장')
+    try:
+        # 샘플 입고검사 데이터
+        today = datetime.now().strftime('%Y-%m-%d')
+        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        incoming_inspections = [
+            (f'INC-{today.replace("-", "")}-0001', today, 'PO-2024-001', 'ITEM001', 'LOT-001', 
+             100, 10, 10, 0, 'pass', None, 1, '전량 합격'),
+            (f'INC-{yesterday.replace("-", "")}-0001', yesterday, 'PO-2024-002', 'ITEM002', 'LOT-002',
+             200, 20, 19, 1, 'conditional', 'DEF001', 1, '조건부 합격')
         ]
+        
         cursor.executemany(
-            "INSERT INTO defect_types (defect_code, defect_name, defect_category, severity_level, description, corrective_action) VALUES (?, ?, ?, ?, ?, ?)",
-            sample_defects
+            """INSERT OR IGNORE INTO incoming_inspection 
+               (inspection_no, inspection_date, po_number, item_code, lot_number,
+                received_qty, sample_qty, passed_qty, failed_qty, inspection_result,
+                defect_codes, inspector_id, remarks)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            incoming_inspections
         )
-        print("  ✅ 샘플 불량 유형 데이터 추가")
-    
-    # 샘플 측정 장비 데이터 추가
-    cursor.execute("SELECT COUNT(*) FROM measurement_equipment")
-    if cursor.fetchone()[0] == 0:
-        sample_equipment = [
-            ('EQ001', '버니어 캘리퍼스', '치수측정', 'Mitutoyo', 'CD-15CPX', 'SN12345', '2025-01-15', '2026-01-15', 365, '품질관리실', 'active'),
-            ('EQ002', '마이크로미터', '치수측정', 'Mitutoyo', 'MDC-25PX', 'SN23456', '2025-01-15', '2026-01-15', 365, '품질관리실', 'active'),
-            ('EQ003', '표면조도계', '표면측정', 'Mitutoyo', 'SJ-210', 'SN34567', '2025-02-01', '2026-02-01', 365, '품질관리실', 'active'),
-            ('EQ004', '경도시험기', '경도측정', 'Mitutoyo', 'HR-522', 'SN45678', '2025-03-01', '2026-03-01', 365, '시험실', 'active')
-        ]
+        
+        # 샘플 SPC 데이터
+        spc_data = []
+        base_time = datetime.now()
+        for i in range(50):
+            timestamp = (base_time - timedelta(hours=i)).strftime('%Y-%m-%d %H:%M:%S')
+            value = 10.0 + (i % 5) * 0.02 + (-0.05 if i % 7 == 0 else 0)
+            spc_data.append(
+                (timestamp, 'PROC-001', 'ITEM001', 'length', value, i % 5 + 1, i // 5 + 1,
+                 10.3, 9.7, 10.0, 1, 'EQ001')
+            )
+        
         cursor.executemany(
-            "INSERT INTO measurement_equipment (equipment_id, equipment_name, equipment_type, manufacturer, model_no, serial_no, calibration_date, next_calibration_date, calibration_cycle, location, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            sample_equipment
+            """INSERT OR IGNORE INTO spc_data
+               (measurement_date, process_code, item_code, characteristic, measurement_value,
+                sample_no, subgroup_no, usl, lsl, target, operator_id, equipment_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            spc_data
         )
-        print("  ✅ 샘플 측정 장비 데이터 추가")
-    
-    conn.commit()
-    conn.close()
-    print("\n✅ 품질관리 테이블 생성 완료!")
+        
+        conn.commit()
+        logger.info("✓ 샘플 품질 데이터 추가 완료")
+        
+    except Exception as e:
+        logger.error(f"샘플 데이터 추가 중 오류: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
+    logger.info("품질관리 테이블 생성 시작...")
     create_quality_tables()
+    
+    # 샘플 데이터 추가 옵션
+    response = input("\n샘플 데이터를 추가하시겠습니까? (y/n): ")
+    if response.lower() == 'y':
+        add_sample_quality_data()
+    
+    logger.info("\n✅ 품질관리 모듈 초기화 완료!")
