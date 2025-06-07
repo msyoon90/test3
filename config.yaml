@@ -15,6 +15,7 @@ modules:
   purchase: true     # 구매관리 - 활성화 (V0.5 신규)
   sales: true       # 영업관리 -  활성화 (V0.9 신규)
   accounting: true   # 회계관리 - 활성화 (V0.7 신규)
+  quality: true      # 품질관리 - 활성화 (v1.1 신규)
 
 # 인증 설정
 authentication:
