@@ -1,4 +1,4 @@
-# app.py - Smart MES-ERP V1.0 메인 애플리케이션 (영업관리 모듈 추가)
+# app.py - Smart MES-ERP V1.1 메인 애플리케이션 (품질관리 모듈 추가)
 
 import dash
 from dash import dcc, html, Input, Output, State, callback_context, ALL, MATCH
@@ -35,7 +35,7 @@ def load_config():
     default_config = {
         'system': {
             'name': 'Smart MES-ERP',
-            'version': '1.0.0',
+            'version': '1.1.0',
             'language': 'ko',
             'update_interval': 2000  # 2초
         },
@@ -43,8 +43,9 @@ def load_config():
             'mes': True,
             'inventory': True,
             'purchase': True,
-            'sales': True,      # V1.0 신규 추가
-            'accounting': True  
+            'sales': True,
+            'accounting': True,
+            'quality': True  # V1.1 신규 추가
         },
         'authentication': {
             'enabled': True,
@@ -53,7 +54,7 @@ def load_config():
         'database': {
             'path': 'data/database.db'
         },
-        'sales': {  # V1.0 영업관리 설정 추가
+        'sales': {
             'quote_validity_days': 30,
             'auto_quote_number': True,
             'customer_grades': {
@@ -62,6 +63,12 @@ def load_config():
                 'Silver': 5,
                 'Bronze': 0
             }
+        },
+        'quality': {  # V1.1 품질관리 설정 추가
+            'default_sampling_rate': 10,
+            'target_defect_rate': 2.0,
+            'spc_rules': ['rule1', 'rule2'],
+            'calibration_reminder_days': 30
         }
     }
     
@@ -428,7 +435,7 @@ def init_database():
         )
     ''')
     
-    # === V1.0 영업관리 테이블 추가 ===
+    # === V1.0 영업관리 테이블 ===
     
     # 고객 마스터
     cursor.execute('''
@@ -752,7 +759,8 @@ def create_navbar():
                         dbc.NavItem(dbc.NavLink("MES", href="/mes", id="nav-mes")) if config['modules']['mes'] else None,
                         dbc.NavItem(dbc.NavLink("재고관리", href="/inventory", id="nav-inventory")) if config['modules']['inventory'] else None,
                         dbc.NavItem(dbc.NavLink("구매관리", href="/purchase", id="nav-purchase")) if config['modules']['purchase'] else None,
-                        dbc.NavItem(dbc.NavLink("영업관리", href="/sales", id="nav-sales")) if config['modules']['sales'] else None,  # V1.0 추가
+                        dbc.NavItem(dbc.NavLink("영업관리", href="/sales", id="nav-sales")) if config['modules']['sales'] else None,
+                        dbc.NavItem(dbc.NavLink("품질관리", href="/quality", id="nav-quality")) if config['modules'].get('quality', False) else None,  # V1.1 추가
                         dbc.NavItem(dbc.NavLink("회계관리", href="/accounting", id="nav-accounting")) if config['modules'].get('accounting', False) else None,
                         dbc.NavItem(dbc.NavLink("설정", href="/settings", id="nav-settings")),
                     ], className="ms-auto", navbar=True),
@@ -909,8 +917,13 @@ def create_dashboard():
                                         className="me-2 p-2"
                                     ),
                                     dbc.Badge(
-                                        ["영업관리 ", html.I(className="fas fa-check")],  # V1.0 추가
+                                        ["영업관리 ", html.I(className="fas fa-check")],
                                         color="success" if config['modules']['sales'] else "secondary",
+                                        className="me-2 p-2"
+                                    ),
+                                    dbc.Badge(
+                                        ["품질관리 ", html.I(className="fas fa-check")],  # V1.1 추가
+                                        color="success" if config['modules'].get('quality', False) else "secondary",
                                         className="me-2 p-2"
                                     ),
                                     dbc.Badge(
@@ -1010,13 +1023,20 @@ def display_page(pathname, session_data):
         except ImportError as e:
             logger.error(f"구매관리 모듈 로드 실패: {e}")
             return error_layout("구매관리", e)
-    elif pathname == '/sales':  # V1.0 영업관리 라우팅 추가
+    elif pathname == '/sales':
         try:
             from modules.sales.layouts import create_sales_layout
             return create_sales_layout()
         except ImportError as e:
             logger.error(f"영업관리 모듈 로드 실패: {e}")
             return error_layout("영업관리", e)
+    elif pathname == '/quality':  # V1.1 품질관리 라우팅 추가
+        try:
+            from modules.quality.layouts import create_quality_layout
+            return create_quality_layout()
+        except ImportError as e:
+            logger.error(f"품질관리 모듈 로드 실패: {e}")
+            return error_layout("품질관리", e)
     elif pathname == '/accounting':
         try:
             from modules.accounting.layouts import create_accounting_layout
@@ -1129,7 +1149,7 @@ def create_settings_page():
                                     ], width=4)
                                 ])
                             ]),
-                            dbc.ListGroupItem([  # V1.0 영업관리 추가
+                            dbc.ListGroupItem([
                                 dbc.Row([
                                     dbc.Col([
                                         html.H5("영업관리", className="mb-0"),
@@ -1139,6 +1159,21 @@ def create_settings_page():
                                         dbc.Switch(
                                             id="module-sales-switch",
                                             value=config['modules'].get('sales', False),
+                                            className="float-end"
+                                        )
+                                    ], width=4)
+                                ])
+                            ]),
+                            dbc.ListGroupItem([  # V1.1 품질관리 추가
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.H5("품질관리", className="mb-0"),
+                                        html.Small("검사, 불량 관리, SPC, 성적서", className="text-muted")
+                                    ], width=8),
+                                    dbc.Col([
+                                        dbc.Switch(
+                                            id="module-quality-switch",
+                                            value=config['modules'].get('quality', False),
                                             className="float-end"
                                         )
                                     ], width=4)
@@ -1355,7 +1390,7 @@ def update_dashboard(n):
             ], color="warning", className="mb-2")
         )
     
-    # V1.0 영업관리 알림 추가
+    # V1.0 영업관리 알림
     try:
         # 견적서 만료 임박 알림
         cursor.execute("""
@@ -1371,6 +1406,44 @@ def update_dashboard(n):
                     html.I(className="fas fa-clock me-2"),
                     f"{expiring_quotes}개 견적서가 곧 만료됩니다."
                 ], color="info", className="mb-2")
+            )
+    except:
+        pass  # 테이블이 없을 경우 무시
+    
+    # V1.1 품질관리 알림 추가
+    try:
+        # 교정 예정 장비 알림
+        cursor.execute("""
+            SELECT COUNT(*) FROM measurement_equipment 
+            WHERE next_calibration_date <= date('now', '+30 days')
+            AND status = 'active'
+        """)
+        calibration_due = cursor.fetchone()[0]
+        
+        if calibration_due > 0:
+            alerts.append(
+                dbc.Alert([
+                    html.I(className="fas fa-tools me-2"),
+                    f"{calibration_due}개 측정 장비의 교정이 예정되어 있습니다."
+                ], color="info", className="mb-2")
+            )
+        
+        # 중대 불량 알림
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM defect_history dh
+            JOIN defect_types dt ON dh.defect_code = dt.defect_code
+            WHERE dt.severity_level = 1
+            AND dh.status != 'closed'
+        """)
+        critical_defects = cursor.fetchone()[0]
+        
+        if critical_defects > 0:
+            alerts.append(
+                dbc.Alert([
+                    html.I(className="fas fa-exclamation-circle me-2"),
+                    f"{critical_defects}건의 중대 불량이 처리 중입니다."
+                ], color="danger", className="mb-2")
             )
     except:
         pass  # 테이블이 없을 경우 무시
@@ -1422,7 +1495,8 @@ def toggle_debug_console(n_clicks, current_style):
     [State('module-mes-switch', 'value'),
      State('module-inventory-switch', 'value'),
      State('module-purchase-switch', 'value'),
-     State('module-sales-switch', 'value'),      # V1.0 추가
+     State('module-sales-switch', 'value'),
+     State('module-quality-switch', 'value'),       # V1.1 추가
      State('module-accounting-switch', 'value'),
      State('auth-enabled-switch', 'value'),
      State('session-timeout', 'value'),
@@ -1431,15 +1505,16 @@ def toggle_debug_console(n_clicks, current_style):
     prevent_initial_call=True
 )
 def save_settings(n_clicks, mes_enabled, inventory_enabled, purchase_enabled,
-                 sales_enabled, accounting_enabled, auth_enabled, session_timeout, 
-                 update_interval, language):
+                 sales_enabled, quality_enabled, accounting_enabled, 
+                 auth_enabled, session_timeout, update_interval, language):
     """시스템 설정 저장"""
     global config
     
     config['modules']['mes'] = mes_enabled
     config['modules']['inventory'] = inventory_enabled
     config['modules']['purchase'] = purchase_enabled
-    config['modules']['sales'] = sales_enabled      # V1.0 추가
+    config['modules']['sales'] = sales_enabled
+    config['modules']['quality'] = quality_enabled      # V1.1 추가
     config['modules']['accounting'] = accounting_enabled
     config['authentication']['enabled'] = auth_enabled
     config['authentication']['session_timeout'] = session_timeout
@@ -1484,6 +1559,13 @@ try:
     register_sales_callbacks(app)
 except ImportError:
     logger.warning("영업관리 모듈 콜백을 불러올 수 없습니다.")
+
+# 품질관리 모듈 콜백 등록 (V1.1 추가)
+try:
+    from modules.quality.callbacks import register_quality_callbacks
+    register_quality_callbacks(app)
+except ImportError:
+    logger.warning("품질관리 모듈 콜백을 불러올 수 없습니다.")
 
 # 회계관리 모듈 콜백 등록
 try:
