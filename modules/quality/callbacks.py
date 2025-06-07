@@ -134,6 +134,40 @@ def register_quality_callbacks(app):
                            i.passed_qty,
                            i.inspection_result,
                            u.username as inspector
+                    FROM incoming_inspection i
+                    LEFT JOIN item_master im ON i.item_code = im.item_code
+                    LEFT JOIN users u ON i.inspector_id = u.id
+                    ORDER BY i.inspection_date DESC
+                    LIMIT 50
+                """
+            elif inspection_type == "process":
+                query = """
+                    SELECT i.inspection_no,
+                           i.inspection_date,
+                           i.item_code,
+                           im.item_name,
+                           i.production_qty as received_qty,
+                           i.sample_qty,
+                           i.passed_qty,
+                           i.inspection_result,
+                           u.username as inspector
+                    FROM process_inspection i
+                    LEFT JOIN item_master im ON i.item_code = im.item_code
+                    LEFT JOIN users u ON i.inspector_id = u.id
+                    ORDER BY i.inspection_date DESC
+                    LIMIT 50
+                """
+            else:  # final
+                query = """
+                    SELECT i.inspection_no,
+                           i.inspection_date,
+                           i.product_code as item_code,
+                           i.product_code as item_name,
+                           i.inspection_qty as received_qty,
+                           i.sample_qty,
+                           i.passed_qty,
+                           i.inspection_result,
+                           u.username as inspector
                     FROM final_inspection i
                     LEFT JOIN users u ON i.inspector_id = u.id
                     ORDER BY i.inspection_date DESC
@@ -1030,38 +1064,4 @@ def register_quality_callbacks(app):
             hovermode='x unified'
         )
         
-        return figusername as inspector
-                    FROM incoming_inspection i
-                    LEFT JOIN item_master im ON i.item_code = im.item_code
-                    LEFT JOIN users u ON i.inspector_id = u.id
-                    ORDER BY i.inspection_date DESC
-                    LIMIT 50
-                """
-            elif inspection_type == "process":
-                query = """
-                    SELECT i.inspection_no,
-                           i.inspection_date,
-                           i.item_code,
-                           im.item_name,
-                           i.production_qty as received_qty,
-                           i.sample_qty,
-                           i.passed_qty,
-                           i.inspection_result,
-                           u.username as inspector
-                    FROM process_inspection i
-                    LEFT JOIN item_master im ON i.item_code = im.item_code
-                    LEFT JOIN users u ON i.inspector_id = u.id
-                    ORDER BY i.inspection_date DESC
-                    LIMIT 50
-                """
-            else:  # final
-                query = """
-                    SELECT i.inspection_no,
-                           i.inspection_date,
-                           i.product_code as item_code,
-                           i.product_code as item_name,
-                           i.inspection_qty as received_qty,
-                           i.sample_qty,
-                           i.passed_qty,
-                           i.inspection_result,
-                           u.
+        return fig
